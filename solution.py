@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with infrequent-category bucketing and richer water-stress ratio features"
+HYPOTHESIS = "ordinal logistic regression with category-relative stress deviations and extended categorical crosses"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -160,8 +160,47 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     out["season_crop"] = out["Season"].astype(str) + "__" + out["Crop_Type"].astype(str)
     out["region_water"] = out["Region"].astype(str) + "__" + out["Water_Source"].astype(str)
     out["soil_mulch"] = out["Soil_Type"].astype(str) + "__" + out["Mulching_Used"].astype(str)
+    out["season_stage"] = out["Season"].astype(str) + "__" + out["Crop_Growth_Stage"].astype(str)
+    out["crop_irrigation"] = out["Crop_Type"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
+    out["region_irrigation"] = out["Region"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
+    out["soil_water"] = out["Soil_Type"].astype(str) + "__" + out["Water_Source"].astype(str)
 
     return out
+
+
+def _add_group_relative_features(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    group_specs = [
+        ("Soil_Type", "Soil_Moisture"),
+        ("Soil_Type", "Electrical_Conductivity"),
+        ("Season", "Rainfall_mm"),
+        ("Region", "Temperature_C"),
+        ("Crop_Growth_Stage", "Previous_Irrigation_mm"),
+        ("Crop_Type", "Field_Area_hectare"),
+    ]
+
+    for group_col, value_col in group_specs:
+        global_median = float(train_df[value_col].median())
+        grouped = train_df.groupby(group_col, observed=True)[value_col].median()
+
+        train_group_med = train_df[group_col].map(grouped).fillna(global_median)
+        val_group_med = val_df[group_col].map(grouped).fillna(global_median)
+
+        diff_name = f"{value_col}_minus_{group_col}_median"
+        ratio_name = f"{value_col}_to_{group_col}_median"
+
+        train_out[diff_name] = train_df[value_col] - train_group_med
+        val_out[diff_name] = val_df[value_col] - val_group_med
+
+        train_out[ratio_name] = (train_df[value_col] + 1.0) / (train_group_med + 1.0)
+        val_out[ratio_name] = (val_df[value_col] + 1.0) / (val_group_med + 1.0)
+
+    return train_out, val_out
 
 
 def _add_quantile_bins(
@@ -219,6 +258,7 @@ def fit_predict(
     """Train a model on (X_train, y_train) and return predictions on X_val."""
     X_train = _add_engineered_features(X_train)
     X_val = _add_engineered_features(X_val)
+    X_train, X_val = _add_group_relative_features(X_train, X_val)
     X_train, X_val = _add_quantile_bins(
         X_train,
         X_val,
