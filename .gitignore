@@ -1,0 +1,14 @@
+.env
+.harness.lock
+.cache/
+__pycache__/
+*.pyc
+*.pkl
+*.npy
+*.joblib
+mlruns/
+/tmp/
+.venv/
+data/*.csv
+!data/.gitkeep
+uv.lock

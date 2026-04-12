@@ -1,0 +1,16 @@
+[project]
+name = "agenticml"
+version = "0.1.0"
+description = "Autoresearch-style harness for iterative tabular ML improvement"
+requires-python = ">=3.11"
+dependencies = [
+    "mlflow>=2.10",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "xgboost>=2.0",
+    "lightgbm>=4.0",
+    "optuna>=3.5",
+]

@@ -1,0 +1,24 @@
+dataset:
+  train_path: data/train.csv
+  target: target
+  id_column: id
+  problem_type: multiclass_classification   # | binary_classification | regression
+
+metric:
+  name: balanced_accuracy                   # | roc_auc | accuracy | logloss | rmse | mae
+
+cv:
+  n_splits: 5
+  shuffle: true
+  seed: 42
+
+budget:
+  smoke_seconds: 60
+  full_seconds: 3600
+
+smoke:
+  data_fraction: 0.05
+  n_splits: 2
+
+mlflow:
+  experiment_prefix: agenticml

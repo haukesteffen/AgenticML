@@ -1,0 +1,170 @@
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+from harness import git_utils, lock, mlflow_utils
+from harness.config import HarnessConfig
+
+EXIT_INVALID_OUTPUT = 2
+GRACE_SECONDS = 5
+
+
+def _spawn_worker(
+    module: str,
+    config_path: str,
+    timeout: int,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[int, str]:
+    env = {**os.environ, **(extra_env or {})}
+    proc = subprocess.Popen(
+        [sys.executable, "-m", module, "--config", config_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        _, stderr = proc.communicate(timeout=timeout)
+        return proc.returncode, stderr.decode(errors="replace")
+    except subprocess.TimeoutExpired:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            os.killpg(pgid, signal.SIGKILL)
+            proc.wait()
+        return -1, "Killed: wall-clock timeout exceeded"
+
+
+def _classify_worker_exit(returncode: int) -> str:
+    if returncode == 0:
+        return "ok"
+    if returncode == EXIT_INVALID_OUTPUT:
+        return "invalid_output"
+    if returncode == -1:
+        return "timeout"
+    return "crash"
+
+
+def run(config_path: str = "config.yaml") -> None:
+    cfg = HarnessConfig.load(config_path)
+    project_root = cfg.project_root
+    config_abs = str((Path(config_path)).resolve())
+
+    lock.acquire(project_root)
+    try:
+        _run_inner(cfg, project_root, config_abs)
+    finally:
+        lock.release(project_root)
+
+
+def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
+    if not git_utils.solution_has_diff(cwd=project_root):
+        print("Nothing to do — solution.py is unchanged vs HEAD.")
+        return
+
+    solution_path = project_root / "solution.py"
+    hypothesis = git_utils.read_hypothesis_via_ast(solution_path)
+
+    sha = git_utils.commit_allowlist(
+        ["solution.py", "NOTES.md"],
+        message=hypothesis,
+        cwd=project_root,
+    )
+    branch = git_utils.current_branch(cwd=project_root)
+
+    experiment_name = f"{cfg.mlflow.experiment_prefix}_{branch}"
+    parent = mlflow_utils.start_parent_run(
+        experiment_name,
+        tags={
+            "branch": branch,
+            "sha": sha,
+            "hypothesis": hypothesis,
+            "status": "running",
+        },
+    )
+    parent_run_id = parent.info.run_id
+
+    try:
+        _run_with_parent(cfg, project_root, config_abs, branch, parent_run_id)
+    except Exception:
+        mlflow_utils.end_parent_run("error")
+        git_utils.reset_one(cwd=project_root)
+        raise
+
+
+def _run_with_parent(
+    cfg: HarnessConfig,
+    project_root: Path,
+    config_abs: str,
+    branch: str,
+    parent_run_id: str,
+) -> None:
+    # --- smoke phase ---
+    print("Running smoke test...")
+    smoke_code, smoke_stderr = _spawn_worker(
+        "harness.worker_smoke",
+        config_abs,
+        timeout=cfg.budget.smoke_seconds,
+    )
+    smoke_status = _classify_worker_exit(smoke_code)
+
+    if smoke_status != "ok":
+        print(f"Smoke test failed: {smoke_status}")
+        if smoke_stderr:
+            print(smoke_stderr)
+        mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
+        mlflow_utils.end_parent_run(f"smoke_fail:{smoke_status}")
+        git_utils.reset_one(cwd=project_root)
+        return
+
+    print("Smoke test passed. Running full CV...")
+
+    # --- full phase ---
+    full_code, full_stderr = _spawn_worker(
+        "harness.worker_full",
+        config_abs,
+        timeout=cfg.budget.full_seconds,
+        extra_env={"MLFLOW_RUN_ID": parent_run_id},
+    )
+    full_status = _classify_worker_exit(full_code)
+
+    if full_status != "ok":
+        print(f"Full run failed: {full_status}")
+        if full_stderr:
+            print(full_stderr)
+        mlflow_utils.log_traceback_artifact(full_stderr, "full_traceback.txt")
+        mlflow_utils.end_parent_run(f"fail:{full_status}")
+        git_utils.reset_one(cwd=project_root)
+        return
+
+    # --- classify result ---
+    mean_score = mlflow_utils.get_parent_mean_score(parent_run_id)
+    if mean_score is None:
+        print("Could not read mean_score from MLflow run.")
+        mlflow_utils.end_parent_run("fail:no_score")
+        git_utils.reset_one(cwd=project_root)
+        return
+
+    experiment_name = f"{cfg.mlflow.experiment_prefix}_{branch}"
+    best_score = mlflow_utils.get_best_score(experiment_name, cfg.metric.direction, branch)
+
+    if best_score is None:
+        improved = True
+    elif cfg.metric.direction == "maximize":
+        improved = mean_score > best_score
+    else:
+        improved = mean_score < best_score
+
+    if improved:
+        mlflow_utils.end_parent_run("improved")
+        print(f"Improved! mean_score={mean_score:.6f} (previous best: {best_score})")
+    else:
+        mlflow_utils.end_parent_run("regressed")
+        git_utils.reset_one(cwd=project_root)
+        print(f"Regressed. mean_score={mean_score:.6f} vs best={best_score:.6f} — branch reset.")
