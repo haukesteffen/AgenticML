@@ -109,7 +109,73 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "initial baseline: logistic regression, scaled numerics, one-hot categoricals"
+HYPOTHESIS = "balanced logistic regression with engineered stress interactions, quantile bins, and categorical crosses"
+
+
+def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    out["water_input_total"] = out["Rainfall_mm"] + out["Previous_Irrigation_mm"]
+    out["water_input_gap"] = out["Rainfall_mm"] - out["Previous_Irrigation_mm"]
+    out["irrigation_per_area"] = out["Previous_Irrigation_mm"] / (out["Field_Area_hectare"] + 1.0)
+    out["rainfall_per_area"] = out["Rainfall_mm"] / (out["Field_Area_hectare"] + 1.0)
+    out["evaporation_stress"] = (
+        out["Temperature_C"] * out["Sunlight_Hours"] * (out["Wind_Speed_kmh"] + 1.0)
+    ) / (out["Humidity"] + 5.0)
+    out["moisture_retention"] = out["Soil_Moisture"] * out["Organic_Carbon"]
+    out["conductivity_moisture"] = out["Electrical_Conductivity"] * out["Soil_Moisture"]
+    out["temp_humidity_interaction"] = out["Temperature_C"] * out["Humidity"]
+    out["ph_neutral_distance_sq"] = (out["Soil_pH"] - 7.0) ** 2
+    out["soil_moisture_sq"] = out["Soil_Moisture"] ** 2
+    out["temperature_sq"] = out["Temperature_C"] ** 2
+    out["humidity_sq"] = out["Humidity"] ** 2
+    out["log_rainfall"] = np.log1p(out["Rainfall_mm"])
+    out["log_previous_irrigation"] = np.log1p(out["Previous_Irrigation_mm"])
+    out["log_field_area"] = np.log1p(out["Field_Area_hectare"])
+    out["log_electrical_conductivity"] = np.log1p(out["Electrical_Conductivity"])
+
+    out["soil_crop"] = out["Soil_Type"].astype(str) + "__" + out["Crop_Type"].astype(str)
+    out["season_region"] = out["Season"].astype(str) + "__" + out["Region"].astype(str)
+    out["growth_irrigation"] = (
+        out["Crop_Growth_Stage"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
+    )
+
+    return out
+
+
+def _add_quantile_bins(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    columns: list[str],
+    q: int = 5,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    for col in columns:
+        quantiles = np.unique(np.quantile(train_df[col], np.linspace(0.0, 1.0, q + 1)))
+        if len(quantiles) <= 2:
+            continue
+
+        edges = quantiles.copy()
+        edges[0] = -np.inf
+        edges[-1] = np.inf
+        labels = [f"{col}_bin_{idx}" for idx in range(len(edges) - 1)]
+
+        train_out[f"{col}_bin"] = pd.cut(
+            train_df[col],
+            bins=edges,
+            labels=labels,
+            include_lowest=True,
+        ).astype("object")
+        val_out[f"{col}_bin"] = pd.cut(
+            val_df[col],
+            bins=edges,
+            labels=labels,
+            include_lowest=True,
+        ).astype("object")
+
+    return train_out, val_out
 
 
 def fit_predict(
@@ -118,6 +184,15 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
+    X_train = _add_engineered_features(X_train)
+    X_val = _add_engineered_features(X_val)
+    X_train, X_val = _add_quantile_bins(
+        X_train,
+        X_val,
+        columns=["Soil_Moisture", "Rainfall_mm", "Previous_Irrigation_mm", "Temperature_C"],
+        q=5,
+    )
+
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
@@ -128,7 +203,16 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
+        (
+            "model",
+            LogisticRegression(
+                C=0.35,
+                class_weight="balanced",
+                max_iter=1500,
+                n_jobs=-1,
+                penalty="l2",
+            ),
+        ),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
