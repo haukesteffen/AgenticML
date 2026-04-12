@@ -22,7 +22,7 @@ import pandas as pd
 from harness.config import HarnessConfig
 from harness.cv import build_cv
 from harness.metric import get_metric
-from harness.mlflow_utils import setup_autolog
+from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
 
 
@@ -44,6 +44,9 @@ def main() -> int:
     else:
         y = y_raw.values.astype(float)
         n_classes = 0
+
+    branch = os.environ.get("HARNESS_BRANCH", "unknown")
+    ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{branch}")
 
     sys.path.insert(0, str(cfg.project_root))
     import solution

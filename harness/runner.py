@@ -130,7 +130,7 @@ def _run_with_parent(
         "harness.worker_full",
         config_abs,
         timeout=cfg.budget.full_seconds,
-        extra_env={"MLFLOW_RUN_ID": parent_run_id},
+        extra_env={"MLFLOW_RUN_ID": parent_run_id, "HARNESS_BRANCH": branch},
     )
     full_status = _classify_worker_exit(full_code)
 

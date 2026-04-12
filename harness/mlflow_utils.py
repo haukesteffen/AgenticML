@@ -15,18 +15,20 @@ def setup_autolog() -> None:
 
 
 def ensure_experiment(experiment_name: str) -> str:
-    experiment = mlflow.get_experiment_by_name(experiment_name)
-    if experiment is None:
-        return mlflow.create_experiment(experiment_name)
-    return experiment.experiment_id
+    client = mlflow.tracking.MlflowClient()
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is not None and experiment.lifecycle_stage == "deleted":
+        client.restore_experiment(experiment.experiment_id)
+    exp = mlflow.set_experiment(experiment_name)
+    return exp.experiment_id
 
 
 def start_parent_run(
     experiment_name: str,
     tags: dict[str, str],
 ) -> mlflow.ActiveRun:
-    experiment_id = ensure_experiment(experiment_name)
-    run = mlflow.start_run(experiment_id=experiment_id, tags=tags)
+    ensure_experiment(experiment_name)
+    run = mlflow.start_run(tags=tags)
     return run
 
 
