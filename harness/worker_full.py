@@ -66,7 +66,7 @@ def main() -> int:
         oof = np.full(len(y), np.nan)
 
     fold_scores: list[float] = []
-    parent_run_id = os.environ["MLFLOW_RUN_ID"]
+    parent_run_id = os.environ.pop("MLFLOW_RUN_ID")
     client = mlflow.tracking.MlflowClient()
 
     for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
