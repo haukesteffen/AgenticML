@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal sparse logistic regression with tuned threshold weighting on engineered stress features"
+HYPOTHESIS = "ordinal logistic regression with infrequent-category bucketing and richer water-stress ratio features"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -136,6 +136,19 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     out["rainfall_deficit"] = out["Sunlight_Hours"] * out["Temperature_C"] - out["Rainfall_mm"]
     out["humidity_gap"] = out["Humidity"] - out["Soil_Moisture"]
     out["water_buffer"] = out["Organic_Carbon"] * out["Soil_Moisture"] / (out["Electrical_Conductivity"] + 1.0)
+    out["water_supply_ratio"] = (out["Rainfall_mm"] + out["Previous_Irrigation_mm"] + 1.0) / (
+        out["Sunlight_Hours"] * out["Temperature_C"] + out["Wind_Speed_kmh"] + 1.0
+    )
+    out["dryness_index"] = (
+        out["Temperature_C"] * (100.0 - out["Humidity"]) * (out["Sunlight_Hours"] + 1.0)
+    ) / (out["Soil_Moisture"] + out["Rainfall_mm"] + out["Previous_Irrigation_mm"] + 5.0)
+    out["salinity_stress"] = out["Electrical_Conductivity"] / (
+        out["Soil_Moisture"] + out["Organic_Carbon"] + 1.0
+    )
+    out["ph_conductivity_interaction"] = out["Soil_pH"] * out["Electrical_Conductivity"]
+    out["moisture_temperature_ratio"] = (out["Soil_Moisture"] + 1.0) / (out["Temperature_C"] + 1.0)
+    out["rain_to_sunlight_ratio"] = (out["Rainfall_mm"] + 1.0) / (out["Sunlight_Hours"] + 1.0)
+    out["irrigation_to_rain_ratio"] = (out["Previous_Irrigation_mm"] + 1.0) / (out["Rainfall_mm"] + 1.0)
 
     out["soil_crop"] = out["Soil_Type"].astype(str) + "__" + out["Crop_Type"].astype(str)
     out["season_region"] = out["Season"].astype(str) + "__" + out["Region"].astype(str)
@@ -144,6 +157,9 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     out["water_mulch"] = out["Water_Source"].astype(str) + "__" + out["Mulching_Used"].astype(str)
     out["soil_irrigation"] = out["Soil_Type"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
+    out["season_crop"] = out["Season"].astype(str) + "__" + out["Crop_Type"].astype(str)
+    out["region_water"] = out["Region"].astype(str) + "__" + out["Water_Source"].astype(str)
+    out["soil_mulch"] = out["Soil_Type"].astype(str) + "__" + out["Mulching_Used"].astype(str)
 
     return out
 
@@ -222,7 +238,15 @@ def fit_predict(
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(with_mean=False), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=True), categorical_cols),
+        (
+            "cat",
+            OneHotEncoder(
+                handle_unknown="infrequent_if_exist",
+                min_frequency=100,
+                sparse_output=True,
+            ),
+            categorical_cols,
+        ),
     ])
     X_train_enc = preprocessor.fit_transform(X_train)
     X_val_enc = preprocessor.transform(X_val)
@@ -239,15 +263,15 @@ def fit_predict(
         X_train_enc,
         y_ge_medium,
         X_val_enc,
-        c_value=0.25,
-        positive_weight=1.9,
+        c_value=0.18,
+        positive_weight=2.2,
     )
     p_ge_high = _fit_binary_logistic(
         X_train_enc,
         y_ge_high,
         X_val_enc,
-        c_value=0.55,
-        positive_weight=7.5,
+        c_value=0.42,
+        positive_weight=8.8,
     )
 
     p_ge_high = np.minimum(p_ge_high, p_ge_medium)
