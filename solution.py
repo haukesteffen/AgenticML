@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with fold-safe category frequency features on the robust z-score pipeline"
+HYPOTHESIS = "ordinal logistic regression with denser quantile prevalence features and retuned threshold regularization"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -326,6 +326,12 @@ def _add_frequency_features(
         "crop_irrigation",
         "region_irrigation",
         "soil_water",
+        "Soil_Moisture_bin",
+        "Rainfall_mm_bin",
+        "Previous_Irrigation_mm_bin",
+        "Temperature_C_bin",
+        "Humidity_bin",
+        "Electrical_Conductivity_bin",
     ]
 
     train_size = float(len(train_df))
@@ -349,8 +355,7 @@ def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weigh
     model = LogisticRegression(
         C=c_value,
         class_weight={0: 1.0, 1: positive_weight},
-        max_iter=1200,
-        penalty="l2",
+        max_iter=1500,
         solver="lbfgs",
     )
     model.fit(X_train, y_train)
@@ -378,7 +383,7 @@ def fit_predict(
             "Humidity",
             "Electrical_Conductivity",
         ],
-        q=6,
+        q=7,
     )
     X_train, X_val = _winsorize_numeric(X_train, X_val)
     X_train, X_val = _add_frequency_features(X_train, X_val)
@@ -413,15 +418,15 @@ def fit_predict(
         X_train_enc,
         y_ge_medium,
         X_val_enc,
-        c_value=0.14,
-        positive_weight=2.4,
+        c_value=0.12,
+        positive_weight=2.6,
     )
     p_ge_high = _fit_binary_logistic(
         X_train_enc,
         y_ge_high,
         X_val_enc,
-        c_value=0.32,
-        positive_weight=9.4,
+        c_value=0.28,
+        positive_weight=10.0,
     )
 
     p_ge_high = np.minimum(p_ge_high, p_ge_medium)
