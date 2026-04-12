@@ -106,10 +106,9 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "balanced logistic regression with engineered stress interactions, quantile bins, and categorical crosses"
+HYPOTHESIS = "ordinal sparse logistic regression with tuned threshold weighting on engineered stress features"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -125,6 +124,7 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     out["moisture_retention"] = out["Soil_Moisture"] * out["Organic_Carbon"]
     out["conductivity_moisture"] = out["Electrical_Conductivity"] * out["Soil_Moisture"]
     out["temp_humidity_interaction"] = out["Temperature_C"] * out["Humidity"]
+    out["temp_moisture_interaction"] = out["Temperature_C"] * out["Soil_Moisture"]
     out["ph_neutral_distance_sq"] = (out["Soil_pH"] - 7.0) ** 2
     out["soil_moisture_sq"] = out["Soil_Moisture"] ** 2
     out["temperature_sq"] = out["Temperature_C"] ** 2
@@ -133,12 +133,17 @@ def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     out["log_previous_irrigation"] = np.log1p(out["Previous_Irrigation_mm"])
     out["log_field_area"] = np.log1p(out["Field_Area_hectare"])
     out["log_electrical_conductivity"] = np.log1p(out["Electrical_Conductivity"])
+    out["rainfall_deficit"] = out["Sunlight_Hours"] * out["Temperature_C"] - out["Rainfall_mm"]
+    out["humidity_gap"] = out["Humidity"] - out["Soil_Moisture"]
+    out["water_buffer"] = out["Organic_Carbon"] * out["Soil_Moisture"] / (out["Electrical_Conductivity"] + 1.0)
 
     out["soil_crop"] = out["Soil_Type"].astype(str) + "__" + out["Crop_Type"].astype(str)
     out["season_region"] = out["Season"].astype(str) + "__" + out["Region"].astype(str)
     out["growth_irrigation"] = (
         out["Crop_Growth_Stage"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
     )
+    out["water_mulch"] = out["Water_Source"].astype(str) + "__" + out["Mulching_Used"].astype(str)
+    out["soil_irrigation"] = out["Soil_Type"].astype(str) + "__" + out["Irrigation_Type"].astype(str)
 
     return out
 
@@ -178,6 +183,18 @@ def _add_quantile_bins(
     return train_out, val_out
 
 
+def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weight: float) -> np.ndarray:
+    model = LogisticRegression(
+        C=c_value,
+        class_weight={0: 1.0, 1: positive_weight},
+        max_iter=1200,
+        penalty="l2",
+        solver="lbfgs",
+    )
+    model.fit(X_train, y_train)
+    return model.predict_proba(X_val)[:, 1]
+
+
 def fit_predict(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -189,30 +206,56 @@ def fit_predict(
     X_train, X_val = _add_quantile_bins(
         X_train,
         X_val,
-        columns=["Soil_Moisture", "Rainfall_mm", "Previous_Irrigation_mm", "Temperature_C"],
-        q=5,
+        columns=[
+            "Soil_Moisture",
+            "Rainfall_mm",
+            "Previous_Irrigation_mm",
+            "Temperature_C",
+            "Humidity",
+            "Electrical_Conductivity",
+        ],
+        q=6,
     )
 
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
     preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
+        ("num", StandardScaler(with_mean=False), numeric_cols),
+        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=True), categorical_cols),
     ])
+    X_train_enc = preprocessor.fit_transform(X_train)
+    X_val_enc = preprocessor.transform(X_val)
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        (
-            "model",
-            LogisticRegression(
-                C=0.35,
-                class_weight="balanced",
-                max_iter=1500,
-                n_jobs=-1,
-                penalty="l2",
-            ),
-        ),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    class_counts = np.bincount(y_train)
+    high_idx = int(np.argmin(class_counts))
+    low_idx = int(np.argmax(class_counts))
+    medium_idx = int(next(idx for idx in range(len(class_counts)) if idx not in {high_idx, low_idx}))
+
+    y_ge_medium = (y_train != low_idx).astype(int)
+    y_ge_high = (y_train == high_idx).astype(int)
+
+    p_ge_medium = _fit_binary_logistic(
+        X_train_enc,
+        y_ge_medium,
+        X_val_enc,
+        c_value=0.25,
+        positive_weight=1.9,
+    )
+    p_ge_high = _fit_binary_logistic(
+        X_train_enc,
+        y_ge_high,
+        X_val_enc,
+        c_value=0.55,
+        positive_weight=7.5,
+    )
+
+    p_ge_high = np.minimum(p_ge_high, p_ge_medium)
+    probs = np.zeros((len(X_val), len(class_counts)), dtype=float)
+    probs[:, low_idx] = 1.0 - p_ge_medium
+    probs[:, medium_idx] = np.clip(p_ge_medium - p_ge_high, 0.0, 1.0)
+    probs[:, high_idx] = p_ge_high
+
+    row_sums = probs.sum(axis=1, keepdims=True)
+    probs /= row_sums
+    return probs
