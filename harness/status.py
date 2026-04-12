@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import mlflow
 from mlflow.entities import ViewType
@@ -34,12 +35,17 @@ def status(config_path: str = "config.yaml", limit: int = 10) -> None:
 
     entries = []
     for _, row in parent_runs.iterrows():
+        def _clean(v):
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return None
+            return v
+
         entry = {
             "sha": row.get("tags.sha", ""),
             "status": row.get("tags.status", ""),
             "hypothesis": row.get("tags.hypothesis", ""),
-            "mean_score": row.get("metrics.mean_score"),
-            "std_score": row.get("metrics.std_score"),
+            "mean_score": _clean(row.get("metrics.mean_score")),
+            "std_score": _clean(row.get("metrics.std_score")),
             "duration_s": None,
         }
         if row.get("start_time") and row.get("end_time"):
@@ -50,7 +56,10 @@ def status(config_path: str = "config.yaml", limit: int = 10) -> None:
                 pass
         entries.append(entry)
 
-    best_improved = [e for e in entries if e["status"] == "improved" and e["mean_score"] is not None]
+    best_improved = [
+        e for e in entries
+        if e["status"] == "improved" and e["mean_score"] is not None
+    ]
     best_score = None
     if best_improved:
         if cfg.metric.direction == "maximize":
