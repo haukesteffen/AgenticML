@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with robust group z-scores, numeric winsorization, and retuned threshold regularization"
+HYPOTHESIS = "ordinal logistic regression with fold-safe category frequency features on the robust z-score pipeline"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -298,6 +298,53 @@ def _winsorize_numeric(
     return train_out, val_out
 
 
+def _add_frequency_features(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    freq_cols = [
+        "Soil_Type",
+        "Crop_Type",
+        "Crop_Growth_Stage",
+        "Season",
+        "Irrigation_Type",
+        "Water_Source",
+        "Mulching_Used",
+        "Region",
+        "soil_crop",
+        "season_region",
+        "growth_irrigation",
+        "water_mulch",
+        "soil_irrigation",
+        "season_crop",
+        "region_water",
+        "soil_mulch",
+        "season_stage",
+        "crop_irrigation",
+        "region_irrigation",
+        "soil_water",
+    ]
+
+    train_size = float(len(train_df))
+    for col in freq_cols:
+        if col not in train_df.columns:
+            continue
+
+        freq = train_df[col].value_counts(normalize=True)
+        train_freq = train_df[col].map(freq).fillna(0.0)
+        val_freq = val_df[col].map(freq).fillna(0.0)
+
+        train_out[f"{col}_freq"] = train_freq
+        val_out[f"{col}_freq"] = val_freq
+        train_out[f"{col}_rarity"] = -np.log(train_freq + 1.0 / (train_size + 1.0))
+        val_out[f"{col}_rarity"] = -np.log(val_freq + 1.0 / (train_size + 1.0))
+
+    return train_out, val_out
+
+
 def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weight: float) -> np.ndarray:
     model = LogisticRegression(
         C=c_value,
@@ -334,6 +381,7 @@ def fit_predict(
         q=6,
     )
     X_train, X_val = _winsorize_numeric(X_train, X_val)
+    X_train, X_val = _add_frequency_features(X_train, X_val)
 
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
