@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with category-relative stress deviations and extended categorical crosses"
+HYPOTHESIS = "ordinal logistic regression with robust group z-scores, numeric winsorization, and retuned threshold regularization"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -203,6 +203,46 @@ def _add_group_relative_features(
     return train_out, val_out
 
 
+def _add_group_robust_z_features(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    group_specs = [
+        ("Soil_Type", "Soil_Moisture"),
+        ("Soil_Type", "Organic_Carbon"),
+        ("Region", "Temperature_C"),
+        ("Season", "Rainfall_mm"),
+        ("Crop_Growth_Stage", "Previous_Irrigation_mm"),
+        ("Irrigation_Type", "water_input_total"),
+    ]
+
+    for group_col, value_col in group_specs:
+        global_median = float(train_df[value_col].median())
+        grouped_median = train_df.groupby(group_col, observed=True)[value_col].median()
+
+        def _mad(series: pd.Series) -> float:
+            center = float(series.median())
+            return float(np.median(np.abs(series - center)))
+
+        grouped_mad = train_df.groupby(group_col, observed=True)[value_col].agg(_mad)
+        global_mad = float(np.median(np.abs(train_df[value_col] - global_median)))
+        fallback_scale = max(global_mad, 1e-3)
+
+        train_center = train_df[group_col].map(grouped_median).fillna(global_median)
+        val_center = val_df[group_col].map(grouped_median).fillna(global_median)
+        train_scale = train_df[group_col].map(grouped_mad).fillna(fallback_scale).clip(lower=1e-3)
+        val_scale = val_df[group_col].map(grouped_mad).fillna(fallback_scale).clip(lower=1e-3)
+
+        z_name = f"{value_col}_within_{group_col}_robust_z"
+        train_out[z_name] = (train_df[value_col] - train_center) / train_scale
+        val_out[z_name] = (val_df[value_col] - val_center) / val_scale
+
+    return train_out, val_out
+
+
 def _add_quantile_bins(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -238,6 +278,26 @@ def _add_quantile_bins(
     return train_out, val_out
 
 
+def _winsorize_numeric(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    lower_q: float = 0.005,
+    upper_q: float = 0.995,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    numeric_cols = train_df.select_dtypes(include=[np.number]).columns.tolist()
+    if not numeric_cols:
+        return train_out, val_out
+
+    lower = train_df[numeric_cols].quantile(lower_q)
+    upper = train_df[numeric_cols].quantile(upper_q)
+    train_out[numeric_cols] = train_df[numeric_cols].clip(lower=lower, upper=upper, axis=1)
+    val_out[numeric_cols] = val_df[numeric_cols].clip(lower=lower, upper=upper, axis=1)
+    return train_out, val_out
+
+
 def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weight: float) -> np.ndarray:
     model = LogisticRegression(
         C=c_value,
@@ -259,6 +319,7 @@ def fit_predict(
     X_train = _add_engineered_features(X_train)
     X_val = _add_engineered_features(X_val)
     X_train, X_val = _add_group_relative_features(X_train, X_val)
+    X_train, X_val = _add_group_robust_z_features(X_train, X_val)
     X_train, X_val = _add_quantile_bins(
         X_train,
         X_val,
@@ -272,6 +333,7 @@ def fit_predict(
         ],
         q=6,
     )
+    X_train, X_val = _winsorize_numeric(X_train, X_val)
 
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
@@ -303,15 +365,15 @@ def fit_predict(
         X_train_enc,
         y_ge_medium,
         X_val_enc,
-        c_value=0.18,
-        positive_weight=2.2,
+        c_value=0.14,
+        positive_weight=2.4,
     )
     p_ge_high = _fit_binary_logistic(
         X_train_enc,
         y_ge_high,
         X_val_enc,
-        c_value=0.42,
-        positive_weight=8.8,
+        c_value=0.32,
+        positive_weight=9.4,
     )
 
     p_ge_high = np.minimum(p_ge_high, p_ge_medium)
