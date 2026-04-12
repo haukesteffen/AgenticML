@@ -12,3 +12,4 @@ mlruns/
 data/*.csv
 !data/.gitkeep
 uv.lock
+.DS_Store
