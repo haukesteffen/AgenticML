@@ -22,4 +22,4 @@ smoke:
 
 mlflow:
   experiment_prefix: agenticml
-  competition_slug: playground-s5e4
+  competition_slug: playground-s6e4
