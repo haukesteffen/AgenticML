@@ -107,10 +107,10 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, PowerTransformer
 from sklearn.utils.class_weight import compute_sample_weight
 
-HYPOTHESIS = "baseline: MLPClassifier with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "power-transform numerics + infrequent-category bucketing + deeper tanh MLP with stronger regularization"
 
 
 def fit_predict(
@@ -123,17 +123,31 @@ def fit_predict(
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
     preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
+        ("num", PowerTransformer(standardize=True), numeric_cols),
+        (
+            "cat",
+            OneHotEncoder(
+                handle_unknown="infrequent_if_exist",
+                min_frequency=0.0005,
+                sparse_output=False,
+            ),
+            categorical_cols,
+        ),
     ])
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
         ("model", MLPClassifier(
-            hidden_layer_sizes=(128, 64),
+            hidden_layer_sizes=(256, 128, 64),
+            activation="tanh",
+            alpha=0.001,
+            batch_size=2048,
             early_stopping=True,
-            max_iter=500,
+            learning_rate_init=0.0005,
+            max_iter=400,
+            n_iter_no_change=20,
             random_state=42,
+            validation_fraction=0.12,
         )),
     ])
     sample_weights = compute_sample_weight("balanced", y_train)
