@@ -105,10 +105,10 @@ Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with centered scaling plus denser quantile bins"
+HYPOTHESIS = "blend multinomial, ridge, and ordinal linear heads with fold-safe prevalence features on the engineered sparse pipeline"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -243,6 +243,52 @@ def _add_group_robust_z_features(
     return train_out, val_out
 
 
+def _add_prevalence_features(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    prevalence_specs = [
+        ("Soil_Type",),
+        ("Crop_Type",),
+        ("Season",),
+        ("Region",),
+        ("Irrigation_Type",),
+        ("Water_Source",),
+        ("Crop_Growth_Stage",),
+        ("Mulching_Used",),
+        ("Soil_Type", "Crop_Type"),
+        ("Season", "Region"),
+        ("Crop_Growth_Stage", "Irrigation_Type"),
+        ("Water_Source", "Mulching_Used"),
+        ("Soil_Type", "Irrigation_Type"),
+        ("Crop_Type", "Irrigation_Type"),
+        ("Region", "Irrigation_Type"),
+    ]
+
+    n_rows = float(len(train_df))
+    for cols in prevalence_specs:
+        feature_name = "_".join(cols) + "_prevalence"
+        if len(cols) == 1:
+            col = cols[0]
+            counts = train_df[col].value_counts(normalize=True)
+            fallback = float(1.0 / max(train_df[col].nunique(), 1))
+            train_out[feature_name] = train_df[col].map(counts).fillna(fallback)
+            val_out[feature_name] = val_df[col].map(counts).fillna(fallback)
+            continue
+
+        train_keys = train_df[list(cols)].astype(str).agg("__".join, axis=1)
+        val_keys = val_df[list(cols)].astype(str).agg("__".join, axis=1)
+        counts = train_keys.value_counts() / n_rows
+        fallback = float(1.0 / max(len(counts), 1))
+        train_out[feature_name] = train_keys.map(counts).fillna(fallback)
+        val_out[feature_name] = val_keys.map(counts).fillna(fallback)
+
+    return train_out, val_out
+
+
 def _add_quantile_bins(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
@@ -309,6 +355,12 @@ def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weigh
     return model.predict_proba(X_val)[:, 1]
 
 
+def _softmax(scores: np.ndarray) -> np.ndarray:
+    shifted = scores - scores.max(axis=1, keepdims=True)
+    exp_scores = np.exp(shifted)
+    return exp_scores / exp_scores.sum(axis=1, keepdims=True)
+
+
 def fit_predict(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -319,6 +371,7 @@ def fit_predict(
     X_val = _add_engineered_features(X_val)
     X_train, X_val = _add_group_relative_features(X_train, X_val)
     X_train, X_val = _add_group_robust_z_features(X_train, X_val)
+    X_train, X_val = _add_prevalence_features(X_train, X_val)
     X_train, X_val = _add_quantile_bins(
         X_train,
         X_val,
@@ -360,27 +413,52 @@ def fit_predict(
     y_ge_medium = (y_train != low_idx).astype(int)
     y_ge_high = (y_train == high_idx).astype(int)
 
+    class_weight = {
+        low_idx: 1.0,
+        medium_idx: 1.45,
+        high_idx: 8.5,
+    }
+    multinomial = LogisticRegression(
+        C=0.18,
+        class_weight=class_weight,
+        max_iter=1500,
+        solver="lbfgs",
+    )
+    multinomial.fit(X_train_enc, y_train)
+    multinomial_probs = multinomial.predict_proba(X_val_enc)
+
+    ridge = RidgeClassifier(
+        alpha=1.5,
+        class_weight=class_weight,
+    )
+    ridge.fit(X_train_enc, y_train)
+    ridge_scores = ridge.decision_function(X_val_enc)
+    if ridge_scores.ndim == 1:
+        ridge_scores = np.column_stack([-ridge_scores, ridge_scores])
+    ridge_probs = _softmax(ridge_scores)
+
     p_ge_medium = _fit_binary_logistic(
         X_train_enc,
         y_ge_medium,
         X_val_enc,
-        c_value=0.12,
-        positive_weight=2.6,
+        c_value=0.16,
+        positive_weight=3.2,
     )
     p_ge_high = _fit_binary_logistic(
         X_train_enc,
         y_ge_high,
         X_val_enc,
-        c_value=0.28,
-        positive_weight=10.0,
+        c_value=0.35,
+        positive_weight=11.5,
     )
 
     p_ge_high = np.minimum(p_ge_high, p_ge_medium)
-    probs = np.zeros((len(X_val), len(class_counts)), dtype=float)
-    probs[:, low_idx] = 1.0 - p_ge_medium
-    probs[:, medium_idx] = np.clip(p_ge_medium - p_ge_high, 0.0, 1.0)
-    probs[:, high_idx] = p_ge_high
+    ordinal_probs = np.zeros((len(X_val), len(class_counts)), dtype=float)
+    ordinal_probs[:, low_idx] = 1.0 - p_ge_medium
+    ordinal_probs[:, medium_idx] = np.clip(p_ge_medium - p_ge_high, 0.0, 1.0)
+    ordinal_probs[:, high_idx] = p_ge_high
 
+    probs = 0.45 * multinomial_probs + 0.25 * ridge_probs + 0.30 * ordinal_probs
     row_sums = probs.sum(axis=1, keepdims=True)
     probs /= row_sums
     return probs
