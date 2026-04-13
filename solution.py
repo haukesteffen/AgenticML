@@ -108,7 +108,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "ordinal logistic regression with centered numeric scaling and lighter categorical bucketing"
+HYPOTHESIS = "ordinal logistic regression with centered scaling plus denser quantile bins"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -330,7 +330,7 @@ def fit_predict(
             "Humidity",
             "Electrical_Conductivity",
         ],
-        q=6,
+        q=7,
     )
     X_train, X_val = _winsorize_numeric(X_train, X_val)
 
