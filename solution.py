@@ -106,9 +106,10 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "blend multinomial, ridge, and ordinal linear heads with fold-safe prevalence features on the engineered sparse pipeline"
+HYPOTHESIS = "add a balanced one-vs-rest logistic head to the engineered sparse linear ensemble"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -427,6 +428,17 @@ def fit_predict(
     multinomial.fit(X_train_enc, y_train)
     multinomial_probs = multinomial.predict_proba(X_val_enc)
 
+    ovr = OneVsRestClassifier(
+        LogisticRegression(
+            C=0.22,
+            class_weight="balanced",
+            max_iter=1500,
+            solver="lbfgs",
+        )
+    )
+    ovr.fit(X_train_enc, y_train)
+    ovr_probs = ovr.predict_proba(X_val_enc)
+
     ridge = RidgeClassifier(
         alpha=1.5,
         class_weight=class_weight,
@@ -458,7 +470,12 @@ def fit_predict(
     ordinal_probs[:, medium_idx] = np.clip(p_ge_medium - p_ge_high, 0.0, 1.0)
     ordinal_probs[:, high_idx] = p_ge_high
 
-    probs = 0.45 * multinomial_probs + 0.25 * ridge_probs + 0.30 * ordinal_probs
+    probs = (
+        0.34 * multinomial_probs
+        + 0.16 * ridge_probs
+        + 0.24 * ordinal_probs
+        + 0.26 * ovr_probs
+    )
     row_sums = probs.sum(axis=1, keepdims=True)
     probs /= row_sums
     return probs
