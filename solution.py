@@ -110,7 +110,7 @@ from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.svm import LinearSVC
 
-HYPOTHESIS = "add fold-safe percentile numeric features and a margin-based linear head to the sparse logistic ensemble"
+HYPOTHESIS = "add quantile bins for engineered water-stress features on top of the current best sparse linear ensemble"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -416,6 +416,10 @@ def fit_predict(
             "Temperature_C",
             "Humidity",
             "Electrical_Conductivity",
+            "water_input_total",
+            "dryness_index",
+            "salinity_stress",
+            "water_supply_ratio",
         ],
         q=7,
     )
