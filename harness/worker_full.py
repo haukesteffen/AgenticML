@@ -1,15 +1,20 @@
-"""Full CV worker — runs all folds with MLflow autolog and nested per-fold runs.
+"""Full CV worker — runs all folds with MLflow autolog and per-fold child runs.
 
-Reactivates the parent MLflow run via MLFLOW_RUN_ID env var.
+Uses MlflowClient to log aggregates to the parent run (avoids cross-process
+run reactivation which is unreliable). Fold runs declare their parent via
+the mlflow.parentRunId tag.
+
 Exit codes:
   0 = success
   1 = crash
   2 = invalid output
+  3 = per-fold timeout
 """
 from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 import tempfile
 import traceback
@@ -24,6 +29,16 @@ from harness.cv import build_cv
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
+
+EXIT_FOLD_TIMEOUT = 3
+
+
+class FoldTimeout(Exception):
+    pass
+
+
+def _alarm_handler(signum, frame):
+    raise FoldTimeout
 
 
 def main() -> int:
@@ -46,7 +61,8 @@ def main() -> int:
         n_classes = 0
 
     branch = os.environ.get("HARNESS_BRANCH", "unknown")
-    ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{branch}")
+    slug = os.environ.get("HARNESS_SLUG", "")
+    experiment_id = ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}")
 
     sys.path.insert(0, str(cfg.project_root))
     import solution
@@ -63,32 +79,44 @@ def main() -> int:
         oof = np.full(len(y), np.nan)
 
     fold_scores: list[float] = []
-    parent_run_id = os.environ["MLFLOW_RUN_ID"]
+    parent_run_id = os.environ.pop("MLFLOW_RUN_ID")
+    client = mlflow.tracking.MlflowClient()
+    fold_seconds = cfg.budget.fold_seconds
 
-    with mlflow.start_run(run_id=parent_run_id):
-        for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
-            X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
-            X_va, y_va = X.iloc[va_idx], y[va_idx]
+    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
 
-            with mlflow.start_run(nested=True, run_name=f"fold_{fold_i}"):
-                preds = solution.fit_predict(X_tr, y_tr, X_va)
-                preds = np.asarray(preds)
-                validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
+    for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
+        X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
+        X_va, y_va = X.iloc[va_idx], y[va_idx]
 
-                oof[va_idx] = preds
-                score = metric_fn(y_va, preds, cfg.dataset.problem_type)
-                mlflow.log_metric("fold_score", score)
-                fold_scores.append(score)
+        with mlflow.start_run(
+            experiment_id=experiment_id,
+            run_name=f"fold_{fold_i}",
+            tags={"mlflow.parentRunId": parent_run_id},
+        ):
+            signal.alarm(fold_seconds)
+            preds = solution.fit_predict(X_tr, y_tr, X_va)
+            signal.alarm(0)
 
-        mean_score = float(np.mean(fold_scores))
-        std_score = float(np.std(fold_scores))
-        mlflow.log_metric("mean_score", mean_score)
-        mlflow.log_metric("std_score", std_score)
+            preds = np.asarray(preds)
+            validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            oof_path = Path(tmpdir) / "oof.npy"
-            np.save(str(oof_path), oof)
-            mlflow.log_artifact(str(oof_path))
+            oof[va_idx] = preds
+            score = metric_fn(y_va, preds, cfg.dataset.problem_type)
+            mlflow.log_metric("fold_score", score)
+            fold_scores.append(score)
+
+    signal.signal(signal.SIGALRM, prev_handler)
+
+    mean_score = float(np.mean(fold_scores))
+    std_score = float(np.std(fold_scores))
+    client.log_metric(parent_run_id, "mean_score", mean_score)
+    client.log_metric(parent_run_id, "std_score", std_score)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        oof_path = Path(tmpdir) / "oof.npy"
+        np.save(str(oof_path), oof)
+        client.log_artifact(parent_run_id, str(oof_path))
 
     return 0
 
@@ -96,6 +124,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         code = main()
+    except FoldTimeout:
+        print("Killed: per-fold timeout exceeded", file=sys.stderr)
+        sys.exit(EXIT_FOLD_TIMEOUT)
     except InvalidOutput:
         traceback.print_exc()
         sys.exit(2)

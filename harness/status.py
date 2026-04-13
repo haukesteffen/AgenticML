@@ -13,7 +13,7 @@ from harness.config import HarnessConfig
 def status(config_path: str = "config.yaml", limit: int = 10) -> None:
     cfg = HarnessConfig.load(config_path)
     branch = git_utils.current_branch(cwd=cfg.project_root)
-    experiment_name = f"{cfg.mlflow.experiment_prefix}_{branch}"
+    experiment_name = f"{cfg.mlflow.experiment_prefix}_{cfg.mlflow.competition_slug}_{branch}"
 
     experiment = mlflow.get_experiment_by_name(experiment_name)
     if experiment is None:

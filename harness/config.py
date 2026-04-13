@@ -46,7 +46,7 @@ class CVConfig:
 @dataclass(frozen=True)
 class BudgetConfig:
     smoke_seconds: int
-    full_seconds: int
+    fold_seconds: int
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,7 @@ class SmokeConfig:
 @dataclass(frozen=True)
 class MLflowConfig:
     experiment_prefix: str
+    competition_slug: str
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,9 @@ class HarnessConfig:
             cv=CVConfig(**raw["cv"]),
             budget=BudgetConfig(**raw["budget"]),
             smoke=SmokeConfig(**raw["smoke"]),
-            mlflow=MLflowConfig(**raw["mlflow"]),
+            mlflow=MLflowConfig(
+                experiment_prefix=raw["mlflow"]["experiment_prefix"],
+                competition_slug=raw["mlflow"]["competition_slug"],
+            ),
             project_root=project_root,
         )
