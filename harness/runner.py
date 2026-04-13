@@ -4,13 +4,18 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+import mlflow
 
 from harness import git_utils, lock, mlflow_utils
 from harness.config import HarnessConfig
 
 EXIT_INVALID_OUTPUT = 2
+EXIT_FOLD_TIMEOUT = 3
 GRACE_SECONDS = 5
+SETUP_BUFFER_SECONDS = 120
 
 
 def _spawn_worker(
@@ -46,6 +51,8 @@ def _classify_worker_exit(returncode: int) -> str:
         return "ok"
     if returncode == EXIT_INVALID_OUTPUT:
         return "invalid_output"
+    if returncode == EXIT_FOLD_TIMEOUT:
+        return "fold_timeout"
     if returncode == -1:
         return "timeout"
     return "crash"
@@ -77,8 +84,9 @@ def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
         cwd=project_root,
     )
     branch = git_utils.current_branch(cwd=project_root)
+    slug = cfg.mlflow.competition_slug
 
-    experiment_name = f"{cfg.mlflow.experiment_prefix}_{branch}"
+    experiment_name = f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}"
     parent = mlflow_utils.start_parent_run(
         experiment_name,
         tags={
@@ -98,6 +106,22 @@ def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
         raise
 
 
+def _solution_loc(project_root: Path) -> int:
+    try:
+        return len((project_root / "solution.py").read_text().splitlines())
+    except OSError:
+        return 0
+
+
+def _print_result(status: str, score, best, n_folds: int, elapsed: float, loc: int) -> None:
+    score_s = f"{score:.6f}" if isinstance(score, float) else "-"
+    best_s = f"{best:.6f}" if isinstance(best, float) else "-"
+    print(
+        f"RESULT status={status} score={score_s} best={best_s}"
+        f" folds={n_folds} elapsed={int(elapsed)}s loc={loc}"
+    )
+
+
 def _run_with_parent(
     cfg: HarnessConfig,
     project_root: Path,
@@ -105,6 +129,10 @@ def _run_with_parent(
     branch: str,
     parent_run_id: str,
 ) -> None:
+    t0 = time.monotonic()
+    loc = _solution_loc(project_root)
+    slug = cfg.mlflow.competition_slug
+
     # --- smoke phase ---
     print("Running smoke test...")
     smoke_code, smoke_stderr = _spawn_worker(
@@ -118,19 +146,26 @@ def _run_with_parent(
         print(f"Smoke test failed: {smoke_status}")
         if smoke_stderr:
             print(smoke_stderr)
+        status = f"smoke_fail:{smoke_status}"
         mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
-        mlflow_utils.end_parent_run(f"smoke_fail:{smoke_status}")
+        mlflow_utils.end_parent_run(status)
         git_utils.reset_one(cwd=project_root)
+        _print_result(status, None, None, 0, time.monotonic() - t0, loc)
         return
 
     print("Smoke test passed. Running full CV...")
 
     # --- full phase ---
+    full_timeout = cfg.budget.fold_seconds * cfg.cv.n_splits + SETUP_BUFFER_SECONDS
     full_code, full_stderr = _spawn_worker(
         "harness.worker_full",
         config_abs,
-        timeout=cfg.budget.full_seconds,
-        extra_env={"MLFLOW_RUN_ID": parent_run_id, "HARNESS_BRANCH": branch},
+        timeout=full_timeout,
+        extra_env={
+            "MLFLOW_RUN_ID": parent_run_id,
+            "HARNESS_BRANCH": branch,
+            "HARNESS_SLUG": slug,
+        },
     )
     full_status = _classify_worker_exit(full_code)
 
@@ -138,20 +173,24 @@ def _run_with_parent(
         print(f"Full run failed: {full_status}")
         if full_stderr:
             print(full_stderr)
+        status = f"fail:{full_status}"
         mlflow_utils.log_traceback_artifact(full_stderr, "full_traceback.txt")
-        mlflow_utils.end_parent_run(f"fail:{full_status}")
+        mlflow_utils.end_parent_run(status)
         git_utils.reset_one(cwd=project_root)
+        _print_result(status, None, None, 0, time.monotonic() - t0, loc)
         return
 
     # --- classify result ---
     mean_score = mlflow_utils.get_parent_mean_score(parent_run_id)
     if mean_score is None:
         print("Could not read mean_score from MLflow run.")
-        mlflow_utils.end_parent_run("fail:no_score")
+        status = "fail:no_score"
+        mlflow_utils.end_parent_run(status)
         git_utils.reset_one(cwd=project_root)
+        _print_result(status, None, None, cfg.cv.n_splits, time.monotonic() - t0, loc)
         return
 
-    experiment_name = f"{cfg.mlflow.experiment_prefix}_{branch}"
+    experiment_name = f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}"
     best_score = mlflow_utils.get_best_score(experiment_name, cfg.metric.direction, branch)
 
     if best_score is None:
@@ -161,10 +200,16 @@ def _run_with_parent(
     else:
         improved = mean_score < best_score
 
+    # Log solution.py snapshot as artifact on the parent run
+    client = mlflow.tracking.MlflowClient()
+    client.log_artifact(parent_run_id, str(project_root / "solution.py"))
+
     if improved:
         mlflow_utils.end_parent_run("improved")
         print(f"Improved! mean_score={mean_score:.6f} (previous best: {best_score})")
+        _print_result("improved", mean_score, best_score, cfg.cv.n_splits, time.monotonic() - t0, loc)
     else:
         mlflow_utils.end_parent_run("regressed")
         git_utils.reset_one(cwd=project_root)
         print(f"Regressed. mean_score={mean_score:.6f} vs best={best_score:.6f} — branch reset.")
+        _print_result("regressed", mean_score, best_score, cfg.cv.n_splits, time.monotonic() - t0, loc)

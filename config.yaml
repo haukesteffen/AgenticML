@@ -14,7 +14,7 @@ cv:
 
 budget:
   smoke_seconds: 60
-  full_seconds: 3600
+  fold_seconds: 600
 
 smoke:
   data_fraction: 0.05
@@ -22,3 +22,4 @@ smoke:
 
 mlflow:
   experiment_prefix: agenticml
+  competition_slug: playground-s5e4

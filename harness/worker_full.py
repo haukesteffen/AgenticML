@@ -8,11 +8,13 @@ Exit codes:
   0 = success
   1 = crash
   2 = invalid output
+  3 = per-fold timeout
 """
 from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sys
 import tempfile
 import traceback
@@ -27,6 +29,16 @@ from harness.cv import build_cv
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
+
+EXIT_FOLD_TIMEOUT = 3
+
+
+class FoldTimeout(Exception):
+    pass
+
+
+def _alarm_handler(signum, frame):
+    raise FoldTimeout
 
 
 def main() -> int:
@@ -49,7 +61,8 @@ def main() -> int:
         n_classes = 0
 
     branch = os.environ.get("HARNESS_BRANCH", "unknown")
-    experiment_id = ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{branch}")
+    slug = os.environ.get("HARNESS_SLUG", "")
+    experiment_id = ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}")
 
     sys.path.insert(0, str(cfg.project_root))
     import solution
@@ -68,6 +81,9 @@ def main() -> int:
     fold_scores: list[float] = []
     parent_run_id = os.environ.pop("MLFLOW_RUN_ID")
     client = mlflow.tracking.MlflowClient()
+    fold_seconds = cfg.budget.fold_seconds
+
+    prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
 
     for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
         X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
@@ -78,7 +94,10 @@ def main() -> int:
             run_name=f"fold_{fold_i}",
             tags={"mlflow.parentRunId": parent_run_id},
         ):
+            signal.alarm(fold_seconds)
             preds = solution.fit_predict(X_tr, y_tr, X_va)
+            signal.alarm(0)
+
             preds = np.asarray(preds)
             validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
 
@@ -86,6 +105,8 @@ def main() -> int:
             score = metric_fn(y_va, preds, cfg.dataset.problem_type)
             mlflow.log_metric("fold_score", score)
             fold_scores.append(score)
+
+    signal.signal(signal.SIGALRM, prev_handler)
 
     mean_score = float(np.mean(fold_scores))
     std_score = float(np.std(fold_scores))
@@ -103,6 +124,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         code = main()
+    except FoldTimeout:
+        print("Killed: per-fold timeout exceeded", file=sys.stderr)
+        sys.exit(EXIT_FOLD_TIMEOUT)
     except InvalidOutput:
         traceback.print_exc()
         sys.exit(2)
