@@ -108,8 +108,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.svm import LinearSVC
 
-HYPOTHESIS = "add a balanced one-vs-rest logistic head to the engineered sparse linear ensemble"
+HYPOTHESIS = "add fold-safe percentile numeric features and a margin-based linear head to the sparse logistic ensemble"
 
 
 def _add_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -345,6 +346,38 @@ def _winsorize_numeric(
     return train_out, val_out
 
 
+def _add_percentile_rank_features(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    columns: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    train_out = train_df.copy()
+    val_out = val_df.copy()
+
+    for col in columns:
+        if col not in train_df or col not in val_df:
+            continue
+
+        sorted_values = np.sort(train_df[col].to_numpy(dtype=float, copy=False))
+        if len(sorted_values) == 0:
+            continue
+
+        train_percentiles = np.searchsorted(sorted_values, train_df[col].to_numpy(dtype=float), side="right")
+        val_percentiles = np.searchsorted(sorted_values, val_df[col].to_numpy(dtype=float), side="right")
+        train_percentiles = train_percentiles / len(sorted_values)
+        val_percentiles = val_percentiles / len(sorted_values)
+
+        clipped_train = np.clip(train_percentiles, 1e-4, 1.0 - 1e-4)
+        clipped_val = np.clip(val_percentiles, 1e-4, 1.0 - 1e-4)
+
+        train_out[f"{col}_pct_rank"] = train_percentiles
+        val_out[f"{col}_pct_rank"] = val_percentiles
+        train_out[f"{col}_pct_logit"] = np.log(clipped_train / (1.0 - clipped_train))
+        val_out[f"{col}_pct_logit"] = np.log(clipped_val / (1.0 - clipped_val))
+
+    return train_out, val_out
+
+
 def _fit_binary_logistic(X_train, y_train, X_val, c_value: float, positive_weight: float) -> np.ndarray:
     model = LogisticRegression(
         C=c_value,
@@ -387,6 +420,23 @@ def fit_predict(
         q=7,
     )
     X_train, X_val = _winsorize_numeric(X_train, X_val)
+    X_train, X_val = _add_percentile_rank_features(
+        X_train,
+        X_val,
+        columns=[
+            "Soil_Moisture",
+            "Organic_Carbon",
+            "Electrical_Conductivity",
+            "Temperature_C",
+            "Humidity",
+            "Rainfall_mm",
+            "Previous_Irrigation_mm",
+            "Field_Area_hectare",
+            "water_input_total",
+            "dryness_index",
+            "salinity_stress",
+        ],
+    )
 
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
@@ -420,7 +470,7 @@ def fit_predict(
         high_idx: 8.5,
     }
     multinomial = LogisticRegression(
-        C=0.18,
+        C=0.16,
         class_weight=class_weight,
         max_iter=1500,
         solver="lbfgs",
@@ -430,7 +480,7 @@ def fit_predict(
 
     ovr = OneVsRestClassifier(
         LogisticRegression(
-            C=0.22,
+            C=0.20,
             class_weight="balanced",
             max_iter=1500,
             solver="lbfgs",
@@ -440,7 +490,7 @@ def fit_predict(
     ovr_probs = ovr.predict_proba(X_val_enc)
 
     ridge = RidgeClassifier(
-        alpha=1.5,
+        alpha=1.8,
         class_weight=class_weight,
     )
     ridge.fit(X_train_enc, y_train)
@@ -449,18 +499,30 @@ def fit_predict(
         ridge_scores = np.column_stack([-ridge_scores, ridge_scores])
     ridge_probs = _softmax(ridge_scores)
 
+    svc = LinearSVC(
+        C=0.45,
+        class_weight=class_weight,
+        dual="auto",
+        max_iter=5000,
+    )
+    svc.fit(X_train_enc, y_train)
+    svc_scores = svc.decision_function(X_val_enc)
+    if svc_scores.ndim == 1:
+        svc_scores = np.column_stack([-svc_scores, svc_scores])
+    svc_probs = _softmax(svc_scores)
+
     p_ge_medium = _fit_binary_logistic(
         X_train_enc,
         y_ge_medium,
         X_val_enc,
-        c_value=0.16,
+        c_value=0.14,
         positive_weight=3.2,
     )
     p_ge_high = _fit_binary_logistic(
         X_train_enc,
         y_ge_high,
         X_val_enc,
-        c_value=0.35,
+        c_value=0.30,
         positive_weight=11.5,
     )
 
@@ -471,10 +533,11 @@ def fit_predict(
     ordinal_probs[:, high_idx] = p_ge_high
 
     probs = (
-        0.34 * multinomial_probs
-        + 0.16 * ridge_probs
+        0.31 * multinomial_probs
+        + 0.10 * ridge_probs
         + 0.24 * ordinal_probs
         + 0.26 * ovr_probs
+        + 0.09 * svc_probs
     )
     row_sums = probs.sum(axis=1, keepdims=True)
     probs /= row_sums
