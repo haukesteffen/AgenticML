@@ -110,7 +110,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, PowerTransformer
 from sklearn.utils.class_weight import compute_sample_weight
 
-HYPOTHESIS = "power-transform numerics + infrequent-category bucketing + deeper tanh MLP with stronger regularization"
+HYPOTHESIS = "slightly wider tanh MLP with lighter regularization and near-baseline Adam settings on the best feature pipeline"
 
 
 def fit_predict(
@@ -138,13 +138,13 @@ def fit_predict(
     pipe = Pipeline([
         ("preprocess", preprocessor),
         ("model", MLPClassifier(
-            hidden_layer_sizes=(256, 128, 64),
+            hidden_layer_sizes=(384, 192, 96),
             activation="tanh",
             alpha=0.001,
-            batch_size=2048,
+            batch_size=3072,
             early_stopping=True,
-            learning_rate_init=0.0005,
-            max_iter=400,
+            learning_rate_init=0.00045,
+            max_iter=425,
             n_iter_no_change=20,
             random_state=42,
             validation_fraction=0.12,
