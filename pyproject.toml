@@ -13,4 +13,5 @@ dependencies = [
     "xgboost>=2.0",
     "lightgbm>=4.0",
     "optuna>=3.5",
+    "pytabkit>=1.3",
 ]

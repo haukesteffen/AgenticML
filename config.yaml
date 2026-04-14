@@ -13,8 +13,8 @@ cv:
   seed: 42
 
 budget:
-  smoke_seconds: 60
-  fold_seconds: 600
+  smoke_seconds: 300
+  fold_seconds: 1800
 
 smoke:
   data_fraction: 0.05
