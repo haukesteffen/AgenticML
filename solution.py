@@ -104,12 +104,9 @@ Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from pytabkit.models.sklearn.sklearn_interfaces import RealMLP_TD_Classifier
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "vanilla RealMLP baseline with default hyperparameters and 1200s time cap"
 
 
 def fit_predict(
@@ -118,17 +115,6 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
-
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
-
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    model = RealMLP_TD_Classifier(n_cv=1, verbosity=2)
+    model.fit(X_train, y_train, time_to_fit_in_seconds=1200)
+    return model.predict_proba(X_val)
