@@ -108,7 +108,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "calibrated CatBoost with stress-regime bins and per-fold class multipliers"
+HYPOTHESIS = "calibrated CatBoost with triple stress crosses and an evaporation-to-water ratio"
 
 
 def fit_predict(
@@ -176,6 +176,9 @@ def fit_predict(
             + 0.015 * prepared["Rainfall_mm"]
             + 0.08 * prepared["Previous_Irrigation_mm"]
         ) / (1.0 + 0.04 * prepared["Temperature_C"] + 0.03 * prepared["Wind_Speed_kmh"])
+        prepared["evaporation_balance_ratio"] = prepared["evaporation_stress"] / (
+            prepared["water_balance"] + 1.0
+        )
         prepared["canopy_demand"] = (
             active_stage
             * prepared["Temperature_C"]
@@ -220,8 +223,14 @@ def fit_predict(
         prepared["stage_mulch"] = (
             prepared["Crop_Growth_Stage"].astype(str) + "__" + prepared["Mulching_Used"].astype(str)
         )
+        prepared["stage_mulch_irrigation"] = (
+            prepared["stage_mulch"] + "__" + prepared["Irrigation_Type"].astype(str)
+        )
         prepared["stage_irrigation"] = (
             prepared["Crop_Growth_Stage"].astype(str) + "__" + prepared["Irrigation_Type"].astype(str)
+        )
+        prepared["crop_stage_mulch"] = (
+            prepared["crop_stage"] + "__" + prepared["Mulching_Used"].astype(str)
         )
         prepared["risk_regime"] = (
             prepared["stage_mulch"]
@@ -231,6 +240,9 @@ def fit_predict(
             + prepared["temp_band"]
             + "__"
             + prepared["wind_band"]
+        )
+        prepared["dryness_signature"] = (
+            prepared["stage_mulch_irrigation"] + "__" + prepared["moisture_band"] + "__" + prepared["rain_band"]
         )
 
         return prepared
