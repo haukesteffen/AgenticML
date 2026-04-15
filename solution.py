@@ -104,12 +104,9 @@ Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from catboost import CatBoostClassifier, CatBoostRegressor
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "baseline: vanilla CatBoost with default tree growth and automatic categorical handling"
 
 
 def fit_predict(
@@ -118,17 +115,36 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    X_train_prepared = X_train.copy()
+    X_val_prepared = X_val.copy()
+    categorical_cols = X_train_prepared.select_dtypes(exclude=[np.number]).columns.tolist()
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    if categorical_cols:
+        for frame in (X_train_prepared, X_val_prepared):
+            frame[categorical_cols] = (
+                frame[categorical_cols]
+                .astype("string")
+                .fillna("__missing__")
+            )
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    common_params = {
+        "allow_writing_files": False,
+        "random_seed": 42,
+        "thread_count": -1,
+        "verbose": False,
+    }
+
+    if np.issubdtype(y_train.dtype, np.floating):
+        model = CatBoostRegressor(loss_function="RMSE", **common_params)
+        model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
+        return model.predict(X_val_prepared)
+
+    n_classes = np.unique(y_train).size
+    if n_classes == 2:
+        model = CatBoostClassifier(loss_function="Logloss", **common_params)
+        model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
+        return model.predict_proba(X_val_prepared)[:, 1]
+
+    model = CatBoostClassifier(loss_function="MultiClass", **common_params)
+    model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
+    return model.predict_proba(X_val_prepared)
