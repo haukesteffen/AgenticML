@@ -108,7 +108,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "calibrated CatBoost with humidity and irrigation-history bands added to the stress features"
+HYPOTHESIS = "calibrated CatBoost with finer class-bias search on the same stress features"
 
 
 def fit_predict(
@@ -346,22 +346,38 @@ def fit_predict(
         )
         calibration_probs = calibration_model.predict_proba(X_train_prepared.iloc[calib_idx])
 
+        def score_multipliers(multipliers: np.ndarray) -> float:
+            return balanced_accuracy_score(
+                y_train[calib_idx],
+                np.argmax(calibration_probs * multipliers, axis=1),
+            )
+
         best_score = -np.inf
-        for minority_mult in [1.00, 1.08, 1.16, 1.24, 1.32]:
-            for mid_mult in [0.97, 1.00, 1.03, 1.06]:
-                for majority_mult in [0.97, 1.00, 1.03]:
+        for minority_mult in [1.00, 1.08, 1.16, 1.24, 1.32, 1.40]:
+            for mid_mult in [0.94, 0.97, 1.00, 1.03, 1.06]:
+                for majority_mult in [0.94, 0.97, 1.00, 1.02, 1.05]:
                     candidate = np.ones(n_classes, dtype=np.float64)
                     candidate[minority_idx] = minority_mult
                     candidate[majority_idx] = majority_mult
                     for idx in remaining_indices:
                         candidate[idx] = mid_mult
-                    score = balanced_accuracy_score(
-                        y_train[calib_idx],
-                        np.argmax(calibration_probs * candidate, axis=1),
-                    )
+                    score = score_multipliers(candidate)
                     if score > best_score:
                         best_score = score
                         best_multipliers = candidate
+        for step in [0.04, 0.02, 0.01]:
+            improved = True
+            while improved:
+                improved = False
+                for idx in range(n_classes):
+                    for scale in [1.0 - step, 1.0 + step]:
+                        candidate = best_multipliers.copy()
+                        candidate[idx] = np.clip(candidate[idx] * scale, 0.85, 1.50)
+                        score = score_multipliers(candidate)
+                        if score > best_score:
+                            best_score = score
+                            best_multipliers = candidate
+                            improved = True
 
     model = build_multiclass_model()
     model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
