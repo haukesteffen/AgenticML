@@ -108,7 +108,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "calibrated CatBoost with triple stress crosses and an evaporation-to-water ratio"
+HYPOTHESIS = "calibrated CatBoost with humidity and irrigation-history bands added to the stress features"
 
 
 def fit_predict(
@@ -209,6 +209,16 @@ def fit_predict(
             prepared["Rainfall_mm"],
             bins=[-np.inf, 350.0, 700.0, 1200.0, 1800.0, np.inf],
             labels=["xdry", "dry", "mid", "wet", "xwet"],
+        ).astype(str)
+        prepared["humidity_band"] = pd.cut(
+            prepared["Humidity"],
+            bins=[-np.inf, 42.0, 55.0, 69.0, 82.0, np.inf],
+            labels=["dryair", "light", "mid", "humid", "saturated"],
+        ).astype(str)
+        prepared["irrigation_band"] = pd.cut(
+            prepared["Previous_Irrigation_mm"],
+            bins=[-np.inf, 16.0, 37.0, 61.0, 89.0, 110.0, np.inf],
+            labels=["trace", "light", "medium", "heavy", "excess", "max"],
         ).astype(str)
 
         prepared["crop_stage"] = (
