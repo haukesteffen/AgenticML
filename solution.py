@@ -108,7 +108,7 @@ from lightgbm import LGBMClassifier, LGBMRegressor, early_stopping
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "ovr LightGBM with agronomic interaction features and calibrated class offsets for balanced accuracy"
+HYPOTHESIS = "ovr LightGBM with calibrated class offsets and a slightly longer final refit after early stopping"
 
 
 def _engineer_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -262,6 +262,12 @@ def _search_class_biases(raw_scores: np.ndarray, y_true: np.ndarray) -> np.ndarr
     return class_biases
 
 
+def _final_iteration_count(best_iteration: int, calibration_fraction: float) -> int:
+    # Early stopping happens on a reduced fit subset; use a modest uplift when refitting on all rows.
+    uplift = 1.0 + min(0.12, calibration_fraction * 0.75)
+    return max(1, int(np.ceil(best_iteration * uplift)))
+
+
 def fit_predict(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
@@ -319,10 +325,11 @@ def fit_predict(
 
     final_models: list[LGBMClassifier] = []
     for class_id, best_iteration in zip(classes, best_iterations, strict=False):
+        final_n_estimators = _final_iteration_count(best_iteration, calibration_fraction)
         binary_target = (y_train_array == class_id).astype(int)
         final_model = LGBMClassifier(
             objective="binary",
-            n_estimators=best_iteration,
+            n_estimators=final_n_estimators,
             learning_rate=0.035,
             num_leaves=96,
             min_child_samples=120,
