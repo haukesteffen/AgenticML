@@ -104,12 +104,9 @@ Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from lightgbm import LGBMClassifier, LGBMRegressor
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "baseline: vanilla LightGBM with native categorical and missing-value handling"
 
 
 def fit_predict(
@@ -118,17 +115,30 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    X_train_prepared = X_train.copy()
+    X_val_prepared = X_val.copy()
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    categorical_cols = X_train_prepared.select_dtypes(
+        include=["object", "category", "string"],
+    ).columns.tolist()
+    for frame in (X_train_prepared, X_val_prepared):
+        for col in categorical_cols:
+            frame[col] = frame[col].astype("category")
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    common_params = {
+        "n_jobs": -1,
+        "random_state": 42,
+        "verbosity": -1,
+    }
+
+    if np.issubdtype(np.asarray(y_train).dtype, np.floating):
+        model = LGBMRegressor(**common_params)
+        model.fit(X_train_prepared, y_train)
+        return model.predict(X_val_prepared)
+
+    model = LGBMClassifier(**common_params)
+    model.fit(X_train_prepared, y_train)
+    proba = model.predict_proba(X_val_prepared)
+    if proba.ndim == 2 and proba.shape[1] == 2:
+        return proba[:, 1]
+    return proba
