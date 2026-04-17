@@ -104,9 +104,162 @@ Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMClassifier, LGBMRegressor
+from lightgbm import LGBMClassifier, LGBMRegressor, early_stopping
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "baseline: vanilla LightGBM with native categorical and missing-value handling"
+HYPOTHESIS = "ovr LightGBM with agronomic interaction features and calibrated class offsets for balanced accuracy"
+
+
+def _engineer_features(frame: pd.DataFrame) -> pd.DataFrame:
+    engineered = frame.copy()
+
+    numeric_groups = {
+        "water_inputs": ["Rainfall_mm", "Previous_Irrigation_mm"],
+        "dryness": ["Temperature_C", "Sunlight_Hours", "Wind_Speed_kmh", "Humidity"],
+        "soil": ["Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity", "Soil_pH"],
+        "field": ["Field_Area_hectare"],
+    }
+    if all(col in engineered.columns for cols in numeric_groups.values() for col in cols):
+        rainfall = engineered["Rainfall_mm"]
+        irrigation = engineered["Previous_Irrigation_mm"]
+        temperature = engineered["Temperature_C"]
+        sunlight = engineered["Sunlight_Hours"]
+        wind = engineered["Wind_Speed_kmh"]
+        humidity = engineered["Humidity"]
+        moisture = engineered["Soil_Moisture"]
+        organic_carbon = engineered["Organic_Carbon"]
+        conductivity = engineered["Electrical_Conductivity"]
+        soil_ph = engineered["Soil_pH"]
+        field_area = engineered["Field_Area_hectare"]
+
+        engineered["Water_Input_Total"] = rainfall + irrigation
+        engineered["Atmospheric_Demand"] = temperature * sunlight * wind / (humidity + 1.0)
+        engineered["Soil_Water_Buffer"] = moisture * (organic_carbon + 1.0)
+        engineered["Dryness_Stress"] = engineered["Atmospheric_Demand"] / (
+            engineered["Soil_Water_Buffer"] + rainfall / 20.0 + irrigation + 1.0
+        )
+        engineered["Water_Per_Area"] = engineered["Water_Input_Total"] / (field_area + 0.5)
+        engineered["Salinity_PH_Interaction"] = conductivity * soil_ph
+
+    category_pairs = [
+        ("Crop_Type", "Season"),
+        ("Crop_Growth_Stage", "Season"),
+        ("Soil_Type", "Region"),
+        ("Irrigation_Type", "Water_Source"),
+    ]
+    for left, right in category_pairs:
+        if left in engineered.columns and right in engineered.columns:
+            engineered[f"{left}__{right}"] = (
+                engineered[left].astype(str) + "__" + engineered[right].astype(str)
+            )
+
+    return engineered
+
+
+def _align_categories(
+    X_train: pd.DataFrame,
+    X_val: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    X_train_prepared = _engineer_features(X_train)
+    X_val_prepared = _engineer_features(X_val)
+
+    categorical_cols = X_train_prepared.select_dtypes(
+        include=["object", "category", "string"],
+    ).columns.tolist()
+    for col in categorical_cols:
+        train_as_category = X_train_prepared[col].astype("category")
+        X_train_prepared[col] = train_as_category
+        X_val_prepared[col] = pd.Categorical(
+            X_val_prepared[col],
+            categories=train_as_category.cat.categories,
+        )
+
+    return X_train_prepared, X_val_prepared, categorical_cols
+
+
+def _ovr_raw_scores(
+    models: list[LGBMClassifier],
+    X: pd.DataFrame,
+) -> np.ndarray:
+    return np.column_stack([model.predict_proba(X)[:, 1] for model in models])
+
+
+def _normalized_ovr_proba(raw_scores: np.ndarray, class_biases: np.ndarray) -> np.ndarray:
+    clipped = np.clip(raw_scores, 1e-6, 1.0 - 1e-6)
+    logits = np.log(clipped) - np.log1p(-clipped)
+    logits = logits + class_biases
+    logits = logits - logits.max(axis=1, keepdims=True)
+    exp_logits = np.exp(logits)
+    return exp_logits / exp_logits.sum(axis=1, keepdims=True)
+
+
+def _fit_binary_lgbm(
+    X_fit: pd.DataFrame,
+    y_fit: np.ndarray,
+    X_eval: pd.DataFrame,
+    y_eval: np.ndarray,
+    random_state: int,
+) -> LGBMClassifier:
+    pos_count = int(y_fit.sum())
+    neg_count = int(len(y_fit) - pos_count)
+    pos_weight = 1.0 if pos_count == 0 else min(max(np.sqrt(neg_count / pos_count), 1.0), 6.0)
+    sample_weight = np.where(y_fit == 1, pos_weight, 1.0)
+
+    model = LGBMClassifier(
+        objective="binary",
+        n_estimators=1800,
+        learning_rate=0.035,
+        num_leaves=96,
+        min_child_samples=120,
+        subsample=0.85,
+        subsample_freq=1,
+        colsample_bytree=0.85,
+        reg_alpha=0.15,
+        reg_lambda=2.0,
+        min_split_gain=0.01,
+        max_bin=255,
+        cat_smooth=20,
+        cat_l2=10,
+        n_jobs=-1,
+        random_state=random_state,
+        verbosity=-1,
+        force_col_wise=True,
+    )
+    model.fit(
+        X_fit,
+        y_fit,
+        sample_weight=sample_weight,
+        eval_set=[(X_eval, y_eval)],
+        eval_metric="binary_logloss",
+        callbacks=[early_stopping(100, verbose=False)],
+    )
+    return model
+
+
+def _search_class_biases(raw_scores: np.ndarray, y_true: np.ndarray) -> np.ndarray:
+    candidate_steps = np.array([-1.0, -0.7, -0.45, -0.25, -0.1, 0.0, 0.1, 0.25, 0.45, 0.7, 1.0])
+    class_biases = np.zeros(raw_scores.shape[1], dtype=float)
+    best_score = balanced_accuracy_score(y_true, raw_scores.argmax(axis=1))
+
+    for _ in range(3):
+        improved = False
+        for class_idx in range(raw_scores.shape[1]):
+            best_local_bias = class_biases[class_idx]
+            for step in candidate_steps:
+                trial_biases = class_biases.copy()
+                trial_biases[class_idx] += step
+                trial_pred = _normalized_ovr_proba(raw_scores, trial_biases).argmax(axis=1)
+                trial_score = balanced_accuracy_score(y_true, trial_pred)
+                if trial_score > best_score + 1e-6:
+                    best_score = trial_score
+                    best_local_bias = trial_biases[class_idx]
+                    improved = True
+            class_biases[class_idx] = best_local_bias
+        if not improved:
+            break
+
+    return class_biases
 
 
 def fit_predict(
@@ -115,15 +268,7 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
-    X_train_prepared = X_train.copy()
-    X_val_prepared = X_val.copy()
-
-    categorical_cols = X_train_prepared.select_dtypes(
-        include=["object", "category", "string"],
-    ).columns.tolist()
-    for frame in (X_train_prepared, X_val_prepared):
-        for col in categorical_cols:
-            frame[col] = frame[col].astype("category")
+    X_train_prepared, X_val_prepared, _ = _align_categories(X_train, X_val)
 
     common_params = {
         "n_jobs": -1,
@@ -136,9 +281,74 @@ def fit_predict(
         model.fit(X_train_prepared, y_train)
         return model.predict(X_val_prepared)
 
-    model = LGBMClassifier(**common_params)
-    model.fit(X_train_prepared, y_train)
-    proba = model.predict_proba(X_val_prepared)
+    y_train_array = np.asarray(y_train)
+    classes = np.unique(y_train_array)
+    class_counts = np.bincount(y_train_array.astype(int), minlength=int(classes.max()) + 1)
+    can_stratify = np.all(class_counts[class_counts > 0] >= 2)
+    calibration_fraction = 0.12 if len(y_train_array) >= 50_000 else 0.2
+
+    X_fit, X_cal, y_fit, y_cal = train_test_split(
+        X_train_prepared,
+        y_train_array,
+        test_size=calibration_fraction,
+        random_state=42,
+        stratify=y_train_array if can_stratify else None,
+    )
+
+    calibration_models: list[LGBMClassifier] = []
+    calibration_scores = []
+    for class_id in classes:
+        binary_y_fit = (y_fit == class_id).astype(int)
+        binary_y_cal = (y_cal == class_id).astype(int)
+        model = _fit_binary_lgbm(
+            X_fit,
+            binary_y_fit,
+            X_cal,
+            binary_y_cal,
+            random_state=42 + int(class_id),
+        )
+        calibration_models.append(model)
+        calibration_scores.append(model.predict_proba(X_cal)[:, 1])
+
+    calibration_raw_scores = np.column_stack(calibration_scores)
+    class_biases = _search_class_biases(calibration_raw_scores, y_cal)
+    best_iterations = [
+        max(1, int(model.best_iteration_ or model.n_estimators))
+        for model in calibration_models
+    ]
+
+    final_models: list[LGBMClassifier] = []
+    for class_id, best_iteration in zip(classes, best_iterations, strict=False):
+        binary_target = (y_train_array == class_id).astype(int)
+        final_model = LGBMClassifier(
+            objective="binary",
+            n_estimators=best_iteration,
+            learning_rate=0.035,
+            num_leaves=96,
+            min_child_samples=120,
+            subsample=0.85,
+            subsample_freq=1,
+            colsample_bytree=0.85,
+            reg_alpha=0.15,
+            reg_lambda=2.0,
+            min_split_gain=0.01,
+            max_bin=255,
+            cat_smooth=20,
+            cat_l2=10,
+            n_jobs=-1,
+            random_state=42 + int(class_id),
+            verbosity=-1,
+            force_col_wise=True,
+        )
+        pos_count = int(binary_target.sum())
+        neg_count = int(len(binary_target) - pos_count)
+        pos_weight = 1.0 if pos_count == 0 else min(max(np.sqrt(neg_count / pos_count), 1.0), 6.0)
+        sample_weight = np.where(binary_target == 1, pos_weight, 1.0)
+        final_model.fit(X_train_prepared, binary_target, sample_weight=sample_weight)
+        final_models.append(final_model)
+
+    raw_val_scores = _ovr_raw_scores(final_models, X_val_prepared)
+    proba = _normalized_ovr_proba(raw_val_scores, class_biases)
     if proba.ndim == 2 and proba.shape[1] == 2:
         return proba[:, 1]
     return proba
