@@ -108,7 +108,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "calibrated CatBoost with holdout-picked tree count and a severe-stress minority boost"
+HYPOTHESIS = "calibrated CatBoost with severe-stress high boosts and a narrow low-need regime nudge"
 
 
 def fit_predict(
@@ -340,6 +340,7 @@ def fit_predict(
     best_iterations = 550
     stress_threshold = None
     stress_minority_boost = 1.0
+    low_regime_boost = 1.0
     remaining_indices = [idx for idx in range(n_classes) if idx not in (minority_idx, majority_idx)]
     if len(X_train_prepared) >= 20_000:
         fit_idx, calib_idx = train_test_split(
@@ -374,18 +375,30 @@ def fit_predict(
                 & calibration_frame["high_wind_flag"].to_numpy().astype(bool)
             ),
         }
+        low_need_mask = (
+            calibration_frame["Mulching_Used"].eq("Yes").to_numpy()
+            & calibration_frame["Crop_Growth_Stage"].isin(["Harvest", "Sowing"]).to_numpy()
+            & calibration_frame["moisture_band"].isin(["ok", "wet"]).to_numpy()
+        )
 
         def score_multipliers(
             multipliers: np.ndarray,
             threshold: int | None = None,
             minority_boost: float = 1.0,
+            low_boost: float = 1.0,
         ) -> float:
             adjusted_probs = calibration_probs * multipliers
+            copied = False
             if threshold in severe_masks:
                 mask = severe_masks[threshold]
                 if mask.any() and minority_boost != 1.0:
                     adjusted_probs = adjusted_probs.copy()
+                    copied = True
                     adjusted_probs[mask, minority_idx] *= minority_boost
+            if low_need_mask.any() and low_boost != 1.0:
+                if not copied:
+                    adjusted_probs = adjusted_probs.copy()
+                adjusted_probs[low_need_mask, majority_idx] *= low_boost
             adjusted_probs /= adjusted_probs.sum(axis=1, keepdims=True)
             return balanced_accuracy_score(
                 y_train[calib_idx],
@@ -444,6 +457,18 @@ def fit_predict(
                             stress_minority_boost = candidate_boost
                             improved = True
 
+        if 0.02 <= low_need_mask.mean() <= 0.25:
+            for candidate_low_boost in [1.0, 1.02, 1.04, 1.06, 1.08]:
+                score = score_multipliers(
+                    best_multipliers,
+                    stress_threshold,
+                    stress_minority_boost,
+                    candidate_low_boost,
+                )
+                if score > best_score:
+                    best_score = score
+                    low_regime_boost = candidate_low_boost
+
     model = build_multiclass_model(iterations=best_iterations)
     model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
     probabilities = model.predict_proba(X_val_prepared) * best_multipliers
@@ -468,5 +493,13 @@ def fit_predict(
             )
         if severe_mask.any():
             probabilities[severe_mask, minority_idx] *= stress_minority_boost
+    if low_regime_boost != 1.0:
+        low_need_mask = (
+            X_val_prepared["Mulching_Used"].eq("Yes").to_numpy()
+            & X_val_prepared["Crop_Growth_Stage"].isin(["Harvest", "Sowing"]).to_numpy()
+            & X_val_prepared["moisture_band"].isin(["ok", "wet"]).to_numpy()
+        )
+        if low_need_mask.any():
+            probabilities[low_need_mask, majority_idx] *= low_regime_boost
     probabilities /= probabilities.sum(axis=1, keepdims=True)
     return probabilities
