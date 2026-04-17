@@ -108,7 +108,7 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "calibrated CatBoost with finer class-bias search on the same stress features"
+HYPOTHESIS = "calibrated CatBoost with holdout-picked tree count and a severe-stress minority boost"
 
 
 def fit_predict(
@@ -314,22 +314,32 @@ def fit_predict(
         model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
         return model.predict_proba(X_val_prepared)[:, 1]
 
-    def build_multiclass_model() -> CatBoostClassifier:
-        return CatBoostClassifier(
-            loss_function="MultiClass",
-            iterations=550,
-            depth=7,
-            learning_rate=0.05,
-            one_hot_max_size=32,
-            bootstrap_type="Bernoulli",
-            subsample=0.85,
-            l2_leaf_reg=7,
-            random_strength=0.75,
-            class_weights=class_weights.tolist(),
+    def build_multiclass_model(iterations: int, use_best_model: bool = False) -> CatBoostClassifier:
+        params = {
+            "loss_function": "MultiClass",
+            "iterations": iterations,
+            "depth": 7,
+            "learning_rate": 0.05,
+            "one_hot_max_size": 32,
+            "bootstrap_type": "Bernoulli",
+            "subsample": 0.85,
+            "l2_leaf_reg": 7,
+            "random_strength": 0.75,
+            "class_weights": class_weights.tolist(),
+            "use_best_model": use_best_model,
             **common_params,
+        }
+        if use_best_model:
+            params["od_type"] = "Iter"
+            params["od_wait"] = 60
+        return CatBoostClassifier(
+            **params,
         )
 
     best_multipliers = np.ones(n_classes, dtype=np.float64)
+    best_iterations = 550
+    stress_threshold = None
+    stress_minority_boost = 1.0
     remaining_indices = [idx for idx in range(n_classes) if idx not in (minority_idx, majority_idx)]
     if len(X_train_prepared) >= 20_000:
         fit_idx, calib_idx = train_test_split(
@@ -338,18 +348,48 @@ def fit_predict(
             stratify=y_train,
             random_state=42,
         )
-        calibration_model = build_multiclass_model()
+        calibration_model = build_multiclass_model(iterations=900, use_best_model=True)
         calibration_model.fit(
             X_train_prepared.iloc[fit_idx],
             y_train[fit_idx],
+            eval_set=(X_train_prepared.iloc[calib_idx], y_train[calib_idx]),
             cat_features=categorical_cols,
         )
+        best_iterations = int(np.clip(calibration_model.tree_count_, 400, 900))
         calibration_probs = calibration_model.predict_proba(X_train_prepared.iloc[calib_idx])
+        calibration_frame = X_train_prepared.iloc[calib_idx]
+        stress_counts = calibration_frame["stress_count"].to_numpy()
+        severe_masks = {
+            None: np.zeros(len(calibration_frame), dtype=bool),
+            5: stress_counts >= 5,
+            6: stress_counts >= 6,
+            7: stress_counts >= 7,
+            50: (
+                calibration_frame["very_low_moisture_flag"].to_numpy().astype(bool)
+                & calibration_frame["high_temp_flag"].to_numpy().astype(bool)
+            ),
+            51: (
+                calibration_frame["low_moisture_flag"].to_numpy().astype(bool)
+                & calibration_frame["high_temp_flag"].to_numpy().astype(bool)
+                & calibration_frame["high_wind_flag"].to_numpy().astype(bool)
+            ),
+        }
 
-        def score_multipliers(multipliers: np.ndarray) -> float:
+        def score_multipliers(
+            multipliers: np.ndarray,
+            threshold: int | None = None,
+            minority_boost: float = 1.0,
+        ) -> float:
+            adjusted_probs = calibration_probs * multipliers
+            if threshold in severe_masks:
+                mask = severe_masks[threshold]
+                if mask.any() and minority_boost != 1.0:
+                    adjusted_probs = adjusted_probs.copy()
+                    adjusted_probs[mask, minority_idx] *= minority_boost
+            adjusted_probs /= adjusted_probs.sum(axis=1, keepdims=True)
             return balanced_accuracy_score(
                 y_train[calib_idx],
-                np.argmax(calibration_probs * multipliers, axis=1),
+                np.argmax(adjusted_probs, axis=1),
             )
 
         best_score = -np.inf
@@ -361,10 +401,14 @@ def fit_predict(
                     candidate[majority_idx] = majority_mult
                     for idx in remaining_indices:
                         candidate[idx] = mid_mult
-                    score = score_multipliers(candidate)
-                    if score > best_score:
-                        best_score = score
-                        best_multipliers = candidate
+                    for threshold in severe_masks:
+                        for minority_boost in [1.00, 1.04, 1.08, 1.12, 1.16]:
+                            score = score_multipliers(candidate, threshold, minority_boost)
+                            if score > best_score:
+                                best_score = score
+                                best_multipliers = candidate
+                                stress_threshold = threshold
+                                stress_minority_boost = minority_boost
         for step in [0.04, 0.02, 0.01]:
             improved = True
             while improved:
@@ -373,14 +417,56 @@ def fit_predict(
                     for scale in [1.0 - step, 1.0 + step]:
                         candidate = best_multipliers.copy()
                         candidate[idx] = np.clip(candidate[idx] * scale, 0.85, 1.50)
-                        score = score_multipliers(candidate)
+                        score = score_multipliers(
+                            candidate,
+                            stress_threshold,
+                            stress_minority_boost,
+                        )
                         if score > best_score:
                             best_score = score
                             best_multipliers = candidate
                             improved = True
+                for threshold in severe_masks:
+                    for minority_boost in [0.98, 1.00, 1.02, 1.04]:
+                        candidate_boost = np.clip(
+                            stress_minority_boost * minority_boost,
+                            1.0,
+                            1.25,
+                        )
+                        score = score_multipliers(
+                            best_multipliers,
+                            threshold,
+                            candidate_boost,
+                        )
+                        if score > best_score:
+                            best_score = score
+                            stress_threshold = threshold
+                            stress_minority_boost = candidate_boost
+                            improved = True
 
-    model = build_multiclass_model()
+    model = build_multiclass_model(iterations=best_iterations)
     model.fit(X_train_prepared, y_train, cat_features=categorical_cols)
     probabilities = model.predict_proba(X_val_prepared) * best_multipliers
+    if stress_threshold is not None and stress_minority_boost != 1.0:
+        stress_counts = X_val_prepared["stress_count"].to_numpy()
+        if stress_threshold == 5:
+            severe_mask = stress_counts >= 5
+        elif stress_threshold == 6:
+            severe_mask = stress_counts >= 6
+        elif stress_threshold == 7:
+            severe_mask = stress_counts >= 7
+        elif stress_threshold == 50:
+            severe_mask = (
+                X_val_prepared["very_low_moisture_flag"].to_numpy().astype(bool)
+                & X_val_prepared["high_temp_flag"].to_numpy().astype(bool)
+            )
+        else:
+            severe_mask = (
+                X_val_prepared["low_moisture_flag"].to_numpy().astype(bool)
+                & X_val_prepared["high_temp_flag"].to_numpy().astype(bool)
+                & X_val_prepared["high_wind_flag"].to_numpy().astype(bool)
+            )
+        if severe_mask.any():
+            probabilities[severe_mask, minority_idx] *= stress_minority_boost
     probabilities /= probabilities.sum(axis=1, keepdims=True)
     return probabilities
