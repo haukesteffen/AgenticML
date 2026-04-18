@@ -56,11 +56,9 @@ Rules
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "hyperparameters: rarest class weight is 1.15x balanced"
+HYPOTHESIS = "preprocessing: use native categorical features instead of one-hot encoding"
 
 
 def fit_predict(
@@ -70,21 +68,27 @@ def fit_predict(
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
     classes, counts = np.unique(y_train, return_counts=True)
     balanced_weights = len(y_train) / (len(classes) * counts.astype(float))
     class_weight = {int(cls): float(weight) for cls, weight in zip(classes, balanced_weights)}
     rarest_class = int(classes[np.argmin(counts)])
     class_weight[rarest_class] *= 1.15
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    X_train_model = X_train.copy()
+    X_val_model = X_val.copy()
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LGBMClassifier(class_weight=class_weight, min_child_samples=150)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    scaler = StandardScaler()
+    X_train_model.loc[:, numeric_cols] = scaler.fit_transform(X_train_model[numeric_cols])
+    X_val_model.loc[:, numeric_cols] = scaler.transform(X_val_model[numeric_cols])
+
+    for col in categorical_cols:
+        X_train_model[col] = X_train_model[col].astype("category")
+        X_val_model[col] = pd.Categorical(
+            X_val_model[col],
+            categories=X_train_model[col].cat.categories,
+        )
+
+    model = LGBMClassifier(class_weight=class_weight, min_child_samples=150)
+    model.fit(X_train_model, y_train, categorical_feature=categorical_cols)
+    return model.predict_proba(X_val_model)
