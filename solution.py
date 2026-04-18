@@ -108,7 +108,7 @@ from lightgbm import LGBMClassifier, LGBMRegressor, early_stopping
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "ovr LightGBM with calibrated class offsets and a slightly higher large-fold refit uplift after early stopping"
+HYPOTHESIS = "ovr LightGBM with calibrated class offsets and finer numeric binning"
 
 
 def _engineer_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -218,7 +218,7 @@ def _fit_binary_lgbm(
         reg_alpha=0.15,
         reg_lambda=2.0,
         min_split_gain=0.01,
-        max_bin=255,
+        max_bin=511,
         cat_smooth=20,
         cat_l2=10,
         n_jobs=-1,
@@ -339,7 +339,7 @@ def fit_predict(
             reg_alpha=0.15,
             reg_lambda=2.0,
             min_split_gain=0.01,
-            max_bin=255,
+            max_bin=511,
             cat_smooth=20,
             cat_l2=10,
             n_jobs=-1,
