@@ -108,7 +108,7 @@ from lightgbm import LGBMClassifier, LGBMRegressor, early_stopping
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "ovr LightGBM with calibrated class offsets and a slightly further final refit uplift after early stopping"
+HYPOTHESIS = "ovr LightGBM with calibrated class offsets and a slightly higher large-fold refit uplift after early stopping"
 
 
 def _engineer_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -264,7 +264,7 @@ def _search_class_biases(raw_scores: np.ndarray, y_true: np.ndarray) -> np.ndarr
 
 def _final_iteration_count(best_iteration: int, calibration_fraction: float) -> int:
     # Early stopping happens on a reduced fit subset; use a modest uplift when refitting on all rows.
-    uplift = 1.0 + min(0.16, calibration_fraction + 0.01)
+    uplift = 1.0 + min(0.16, calibration_fraction + 0.02)
     return max(1, int(np.ceil(best_iteration * uplift)))
 
 
