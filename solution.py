@@ -61,7 +61,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "feature engineering: add ET0 proxy Temperature_C * (100 - Humidity)"
+HYPOTHESIS = "preprocessing: native XGB categorical support via pandas Categorical dtype"
 
 
 def _add_features(X: pd.DataFrame) -> pd.DataFrame:
@@ -79,18 +79,13 @@ def fit_predict(
     X_train = _add_features(X_train)
     X_val = _add_features(X_val)
 
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    for col in categorical_cols:
+        categories = pd.api.types.CategoricalDtype(categories=X_train[col].unique())
+        X_train[col] = X_train[col].astype(categories)
+        X_val[col] = X_val[col].astype(categories)
 
-    preprocessor = ColumnTransformer([
-        ("num", "passthrough", numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
-
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", XGBClassifier()),
-    ])
+    model = XGBClassifier(enable_categorical=True, tree_method="hist")
     sample_weight = compute_sample_weight(class_weight="balanced", y=y_train)
-    pipe.fit(X_train, y_train, model__sample_weight=sample_weight)
-    return pipe.predict_proba(X_val)
+    model.fit(X_train, y_train, sample_weight=sample_weight)
+    return model.predict_proba(X_val)
