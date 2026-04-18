@@ -58,9 +58,10 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "vanilla XGBClassifier"
+HYPOTHESIS = "preprocessing: balanced sample weights for imbalanced classes"
 
 
 def fit_predict(
@@ -81,5 +82,6 @@ def fit_predict(
         ("preprocess", preprocessor),
         ("model", XGBClassifier()),
     ])
-    pipe.fit(X_train, y_train)
+    sample_weight = compute_sample_weight(class_weight="balanced", y=y_train)
+    pipe.fit(X_train, y_train, model__sample_weight=sample_weight)
     return pipe.predict_proba(X_val)
