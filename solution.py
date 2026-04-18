@@ -27,13 +27,10 @@ Inputs
 
 Return shape
 ------------
-  regression                  -> 1D array of shape (len(X_val),)
-  binary_classification       -> 1D array of shape (len(X_val),), probability
-                                 of the positive class
-  multiclass_classification   -> 2D array of shape (len(X_val), n_classes),
-                                 per-class probabilities with columns in
-                                 ascending class-index order (matching pd.factorize
-                                 with sort=True)
+  2D array of shape (len(X_val), n_classes),
+  per-class probabilities with columns in
+  ascending class-index order (matching pd.factorize
+  with sort=True)
 
 What the harness captures automatically
 ---------------------------------------
@@ -50,56 +47,10 @@ Rules
 - Feature engineering must be done inside ``fit_predict`` so it runs on the
   training fold only (no cross-fold leakage).
 - HYPOTHESIS must be a plain string literal at module scope.
-
-Cookbook
--------
-sklearn Pipeline (works for all 3 problem types)::
-
-    from sklearn.pipeline import Pipeline
-    from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.linear_model import LogisticRegression
-
-    pipe = Pipeline([
-        ("impute", SimpleImputer(strategy="median")),
-        ("scale", StandardScaler()),
-        ("model", LogisticRegression(max_iter=1000)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
-
-XGBoost (multiclass)::
-
-    from xgboost import XGBClassifier
-
-    model = XGBClassifier(
-        n_estimators=500, learning_rate=0.05, max_depth=6,
-        objective="multi:softprob", n_jobs=-1,
-    )
-    model.fit(X_train, y_train)
-    return model.predict_proba(X_val)
-
-Optuna-wrapped XGBoost (best params land in autolog via the final fit)::
-
-    import optuna
-    from xgboost import XGBClassifier
-    from sklearn.model_selection import cross_val_score
-
-    def objective(trial):
-        params = {
-            "n_estimators": trial.suggest_int("n_estimators", 200, 1200),
-            "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
-            "max_depth": trial.suggest_int("max_depth", 3, 10),
-        }
-        m = XGBClassifier(**params, n_jobs=-1)
-        return cross_val_score(m, X_train, y_train, cv=3,
-                               scoring="balanced_accuracy").mean()
-
-    study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=30, show_progress_bar=False)
-    best = XGBClassifier(**study.best_params, n_jobs=-1)
-    best.fit(X_train, y_train)
-    return best.predict_proba(X_val)
+- Change exactly one axis per attempt: feature engineering, preprocessing,
+  hyperparameters, or ensembling. HYPOTHESIS must be a single clause naming
+  that one axis. Bundling changes hides which one moved the score and kills
+  the next iteration's ability to ablate or revert. This rule is strict.
 """
 
 import numpy as np

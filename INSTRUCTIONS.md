@@ -56,10 +56,25 @@ timeout (`budget.smoke_seconds`).
 - Prefer simpler solutions — avoid unnecessary complexity when a simpler
   approach achieves comparable results.
 
+## Change discipline
+
+**Each attempt makes exactly one change.**
+
+The axes are:
+1. Preprocessing (imputation, scaling, outlier handling)
+2. Feature engineering (new derived feature(s), transforms, encodings)
+3. Hyperparameters (tune the current estimator)
+4. Ensembling / stacking (combine multiple estimators)
+
+If your `HYPOTHESIS` cannot be written as a single clause naming one axis,
+you are changing too much — split it into separate attempts.
+
 ## Workflow
 
 1. `python -m harness status` — see recent attempts and the current best score
 2. Read current `solution.py`
-3. Edit `solution.py` — update `HYPOTHESIS` and `fit_predict`
+3. Pick **one** axis to change (see Change discipline). Edit `solution.py`
+   — update `fit_predict` for that one axis only, and set `HYPOTHESIS` to
+   a single clause naming the axis and the change.
 4. `python -m harness run` — wait for the `RESULT` line
 5. Read the output, then iterate
