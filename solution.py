@@ -60,7 +60,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: min_child_samples=100"
+HYPOTHESIS = "hyperparameters: min_child_samples=150"
 
 
 def fit_predict(
@@ -79,7 +79,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LGBMClassifier(class_weight="balanced", min_child_samples=100)),
+        ("model", LGBMClassifier(class_weight="balanced", min_child_samples=150)),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
