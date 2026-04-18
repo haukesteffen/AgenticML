@@ -61,7 +61,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparameters: colsample_bytree=0.8 for feature sampling regularization"
+HYPOTHESIS = "hyperparameters: max_bin=512 for finer histogram splits"
 
 
 def _add_features(X: pd.DataFrame) -> pd.DataFrame:
@@ -85,7 +85,7 @@ def fit_predict(
         X_train[col] = X_train[col].astype(categories)
         X_val[col] = X_val[col].astype(categories)
 
-    model = XGBClassifier(enable_categorical=True, tree_method="hist", colsample_bytree=0.8)
+    model = XGBClassifier(enable_categorical=True, tree_method="hist", colsample_bytree=0.8, max_bin=512)
     sample_weight = compute_sample_weight(class_weight="balanced", y=y_train)
     model.fit(X_train, y_train, sample_weight=sample_weight)
     return model.predict_proba(X_val)
