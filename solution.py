@@ -60,7 +60,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: min_child_samples=150"
+HYPOTHESIS = "hyperparameters: rarest class weight is 1.1x balanced"
 
 
 def fit_predict(
@@ -71,6 +71,11 @@ def fit_predict(
     """Train a model on (X_train, y_train) and return predictions on X_val."""
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    classes, counts = np.unique(y_train, return_counts=True)
+    balanced_weights = len(y_train) / (len(classes) * counts.astype(float))
+    class_weight = {int(cls): float(weight) for cls, weight in zip(classes, balanced_weights)}
+    rarest_class = int(classes[np.argmin(counts)])
+    class_weight[rarest_class] *= 1.1
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
@@ -79,7 +84,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LGBMClassifier(class_weight="balanced", min_child_samples=150)),
+        ("model", LGBMClassifier(class_weight=class_weight, min_child_samples=150)),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
