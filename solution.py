@@ -58,7 +58,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "hyperparameters: max_bin=511"
+HYPOTHESIS = "hyperparameters: max_bin=1023"
 
 
 def fit_predict(
@@ -89,6 +89,6 @@ def fit_predict(
             categories=X_train_model[col].cat.categories,
         )
 
-    model = LGBMClassifier(class_weight=class_weight, max_bin=511, min_child_samples=150)
+    model = LGBMClassifier(class_weight=class_weight, max_bin=1023, min_child_samples=150)
     model.fit(X_train_model, y_train, categorical_feature=categorical_cols)
     return model.predict_proba(X_val_model)
