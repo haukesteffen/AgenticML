@@ -56,11 +56,11 @@ Rules
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+from xgboost import XGBClassifier
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "vanilla XGBClassifier"
 
 
 def fit_predict(
@@ -73,13 +73,13 @@ def fit_predict(
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
     preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
+        ("num", "passthrough", numeric_cols),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
     ])
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
+        ("model", XGBClassifier()),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
