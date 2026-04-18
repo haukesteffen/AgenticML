@@ -60,7 +60,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: rarest class weight is 1.1x balanced"
+HYPOTHESIS = "hyperparameters: rarest class weight is 1.15x balanced"
 
 
 def fit_predict(
@@ -75,7 +75,7 @@ def fit_predict(
     balanced_weights = len(y_train) / (len(classes) * counts.astype(float))
     class_weight = {int(cls): float(weight) for cls, weight in zip(classes, balanced_weights)}
     rarest_class = int(classes[np.argmin(counts)])
-    class_weight[rarest_class] *= 1.1
+    class_weight[rarest_class] *= 1.15
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
