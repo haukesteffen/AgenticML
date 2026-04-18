@@ -61,7 +61,13 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "preprocessing: balanced sample weights for imbalanced classes"
+HYPOTHESIS = "feature engineering: add ET0 proxy Temperature_C * (100 - Humidity)"
+
+
+def _add_features(X: pd.DataFrame) -> pd.DataFrame:
+    X = X.copy()
+    X["et0_proxy"] = X["Temperature_C"] * (100.0 - X["Humidity"])
+    return X
 
 
 def fit_predict(
@@ -70,6 +76,9 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
+    X_train = _add_features(X_train)
+    X_val = _add_features(X_val)
+
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
