@@ -55,12 +55,12 @@ Rules
 
 import numpy as np
 import pandas as pd
+from lightgbm import LGBMClassifier
 from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "vanilla LGBMClassifier"
 
 
 def fit_predict(
@@ -79,7 +79,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
+        ("model", LGBMClassifier()),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
