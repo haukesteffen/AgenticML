@@ -22,4 +22,5 @@ smoke:
 
 mlflow:
   experiment_prefix: agenticml
-  competition_slug: playground-s6e4
+  competition_slug: playground-s6e4           # mlflow experiment-name suffix; stable across history
+  kaggle_competition: playground-series-s6e4  # real Kaggle competition slug for API uploads

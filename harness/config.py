@@ -59,6 +59,12 @@ class SmokeConfig:
 class MLflowConfig:
     experiment_prefix: str
     competition_slug: str
+    submissions_suffix: str = "submissions"
+    kaggle_competition: str | None = None
+
+    @property
+    def kaggle_slug(self) -> str:
+        return self.kaggle_competition or self.competition_slug
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,8 @@ class HarnessConfig:
             mlflow=MLflowConfig(
                 experiment_prefix=raw["mlflow"]["experiment_prefix"],
                 competition_slug=raw["mlflow"]["competition_slug"],
+                submissions_suffix=raw["mlflow"].get("submissions_suffix", "submissions"),
+                kaggle_competition=raw["mlflow"].get("kaggle_competition"),
             ),
             project_root=project_root,
         )

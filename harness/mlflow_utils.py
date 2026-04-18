@@ -76,3 +76,38 @@ def get_best_score(
 def get_parent_mean_score(run_id: str) -> float | None:
     run = mlflow.get_run(run_id)
     return run.data.metrics.get("mean_score")
+
+
+def get_best_improved_run_id(
+    experiment_name: str,
+    direction: str,
+    branch: str,
+) -> str | None:
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        return None
+
+    runs = mlflow.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=f"tags.status = 'improved' AND tags.branch = '{branch}'",
+        run_view_type=ViewType.ACTIVE_ONLY,
+    )
+    if runs.empty or "metrics.mean_score" not in runs.columns:
+        return None
+
+    runs = runs.dropna(subset=["metrics.mean_score"])
+    if runs.empty:
+        return None
+
+    ascending = direction != "maximize"
+    runs = runs.sort_values("metrics.mean_score", ascending=ascending)
+    return runs.iloc[0]["run_id"]
+
+
+def ensure_submissions_experiment(
+    experiment_prefix: str,
+    competition_slug: str,
+    submissions_suffix: str = "submissions",
+) -> tuple[str, str]:
+    name = f"{experiment_prefix}_{competition_slug}_{submissions_suffix}"
+    return name, ensure_experiment(name)
