@@ -58,7 +58,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "hyperparameters: num_leaves=24"
+HYPOTHESIS = "feature engineering: add Mulching_Used x Crop_Growth_Stage interaction"
 
 
 def fit_predict(
@@ -77,6 +77,20 @@ def fit_predict(
 
     X_train_model = X_train.copy()
     X_val_model = X_val.copy()
+
+    interaction_col = "Mulching_Used__Crop_Growth_Stage"
+    if {"Mulching_Used", "Crop_Growth_Stage"}.issubset(X_train_model.columns):
+        X_train_model[interaction_col] = (
+            X_train_model["Mulching_Used"].astype(str)
+            + "__"
+            + X_train_model["Crop_Growth_Stage"].astype(str)
+        )
+        X_val_model[interaction_col] = (
+            X_val_model["Mulching_Used"].astype(str)
+            + "__"
+            + X_val_model["Crop_Growth_Stage"].astype(str)
+        )
+        categorical_cols.append(interaction_col)
 
     scaler = StandardScaler()
     X_train_model.loc[:, numeric_cols] = scaler.fit_transform(X_train_model[numeric_cols])
