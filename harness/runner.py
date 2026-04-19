@@ -162,6 +162,10 @@ def _smoke_timeout(cfg: HarnessConfig, spec: ExperimentSpec) -> int:
     return cfg.budget.smoke_seconds
 
 
+def _should_run_smoke(spec: ExperimentSpec) -> bool:
+    return spec.kind != "ensemble"
+
+
 def _print_result(status: str, score, best, n_folds: int, elapsed: float, loc: int) -> None:
     score_s = f"{score:.6f}" if isinstance(score, float) else "-"
     best_s = f"{best:.6f}" if isinstance(best, float) else "-"
@@ -184,26 +188,29 @@ def _run_with_parent(
     slug = cfg.mlflow.competition_slug
 
     # --- smoke phase ---
-    print("Running smoke test...")
-    smoke_code, smoke_stderr = _spawn_worker(
-        spec.smoke_worker,
-        config_abs,
-        timeout=_smoke_timeout(cfg, spec),
-    )
-    smoke_status = _classify_worker_exit(smoke_code)
+    if _should_run_smoke(spec):
+        print("Running smoke test...")
+        smoke_code, smoke_stderr = _spawn_worker(
+            spec.smoke_worker,
+            config_abs,
+            timeout=_smoke_timeout(cfg, spec),
+        )
+        smoke_status = _classify_worker_exit(smoke_code)
 
-    if smoke_status != "ok":
-        print(f"Smoke test failed: {smoke_status}")
-        if smoke_stderr:
-            print(smoke_stderr)
-        status = f"smoke_fail:{smoke_status}"
-        mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
-        mlflow_utils.end_parent_run(status)
-        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
-        _print_result(status, None, None, 0, time.monotonic() - t0, loc)
-        return
+        if smoke_status != "ok":
+            print(f"Smoke test failed: {smoke_status}")
+            if smoke_stderr:
+                print(smoke_stderr)
+            status = f"smoke_fail:{smoke_status}"
+            mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
+            mlflow_utils.end_parent_run(status)
+            git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
+            _print_result(status, None, None, 0, time.monotonic() - t0, loc)
+            return
 
-    print("Smoke test passed. Running full CV...")
+        print("Smoke test passed. Running full CV...")
+    else:
+        print("Skipping smoke test for ensemble experiment. Running full CV...")
 
     # --- full phase ---
     full_timeout = cfg.budget.fold_seconds * cfg.cv.n_splits + SETUP_BUFFER_SECONDS
