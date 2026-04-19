@@ -53,12 +53,11 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average over four strong model families"
+HYPOTHESIS = "equal-weight average after pruning mlp2 source"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
     {"alias": "lightgbm2", "branch": "exp/lightgbm2", "selector": "best_improved"},
-    {"alias": "mlp2", "branch": "exp/mlp2", "selector": "best_improved"},
     {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
 ]
 
