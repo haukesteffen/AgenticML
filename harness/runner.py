@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import mlflow
@@ -16,6 +17,30 @@ EXIT_INVALID_OUTPUT = 2
 EXIT_FOLD_TIMEOUT = 3
 GRACE_SECONDS = 5
 SETUP_BUFFER_SECONDS = 120
+RESET_ALLOWLIST = ("NOTES.md",)
+
+
+@dataclass(frozen=True)
+class ExperimentSpec:
+    kind: str
+    file_name: str
+    smoke_worker: str
+    full_worker: str
+
+
+MODEL_EXPERIMENT = ExperimentSpec(
+    kind="model",
+    file_name="solution.py",
+    smoke_worker="harness.worker_smoke",
+    full_worker="harness.worker_full",
+)
+
+ENSEMBLE_EXPERIMENT = ExperimentSpec(
+    kind="ensemble",
+    file_name="ensemble.py",
+    smoke_worker="harness.worker_ensemble_smoke",
+    full_worker="harness.worker_ensemble_full",
+)
 
 
 def _spawn_worker(
@@ -71,15 +96,16 @@ def run(config_path: str = "config.yaml") -> None:
 
 
 def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
-    if not git_utils.solution_has_diff(cwd=project_root):
-        print("Nothing to do — solution.py is unchanged vs HEAD.")
+    spec = _detect_experiment(project_root)
+    if spec is None:
+        print("Nothing to do — solution.py and ensemble.py have no pending changes.")
         return
 
-    solution_path = project_root / "solution.py"
-    hypothesis = git_utils.read_hypothesis_via_ast(solution_path)
+    experiment_path = project_root / spec.file_name
+    hypothesis = git_utils.read_hypothesis_via_ast(experiment_path)
 
     sha = git_utils.commit_allowlist(
-        ["solution.py", "NOTES.md"],
+        [spec.file_name, "NOTES.md"],
         message=hypothesis,
         cwd=project_root,
     )
@@ -93,22 +119,39 @@ def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
             "branch": branch,
             "sha": sha,
             "hypothesis": hypothesis,
+            "experiment_kind": spec.kind,
             "status": "running",
         },
     )
     parent_run_id = parent.info.run_id
 
     try:
-        _run_with_parent(cfg, project_root, config_abs, branch, parent_run_id)
+        _run_with_parent(cfg, project_root, config_abs, branch, parent_run_id, spec)
     except Exception:
         mlflow_utils.end_parent_run("error")
-        git_utils.reset_one(cwd=project_root)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
         raise
 
 
-def _solution_loc(project_root: Path) -> int:
+def _detect_experiment(project_root: Path) -> ExperimentSpec | None:
+    solution_changed = git_utils.file_has_diff("solution.py", cwd=project_root)
+    ensemble_path = project_root / "ensemble.py"
+    ensemble_changed = ensemble_path.exists() and git_utils.file_has_diff("ensemble.py", cwd=project_root)
+
+    if solution_changed and ensemble_changed:
+        raise RuntimeError(
+            "Both solution.py and ensemble.py changed. Edit exactly one experiment file per run."
+        )
+    if solution_changed:
+        return MODEL_EXPERIMENT
+    if ensemble_changed:
+        return ENSEMBLE_EXPERIMENT
+    return None
+
+
+def _module_loc(project_root: Path, file_name: str) -> int:
     try:
-        return len((project_root / "solution.py").read_text().splitlines())
+        return len((project_root / file_name).read_text().splitlines())
     except OSError:
         return 0
 
@@ -128,15 +171,16 @@ def _run_with_parent(
     config_abs: str,
     branch: str,
     parent_run_id: str,
+    spec: ExperimentSpec,
 ) -> None:
     t0 = time.monotonic()
-    loc = _solution_loc(project_root)
+    loc = _module_loc(project_root, spec.file_name)
     slug = cfg.mlflow.competition_slug
 
     # --- smoke phase ---
     print("Running smoke test...")
     smoke_code, smoke_stderr = _spawn_worker(
-        "harness.worker_smoke",
+        spec.smoke_worker,
         config_abs,
         timeout=cfg.budget.smoke_seconds,
     )
@@ -149,7 +193,7 @@ def _run_with_parent(
         status = f"smoke_fail:{smoke_status}"
         mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
         mlflow_utils.end_parent_run(status)
-        git_utils.reset_one(cwd=project_root)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
         _print_result(status, None, None, 0, time.monotonic() - t0, loc)
         return
 
@@ -158,7 +202,7 @@ def _run_with_parent(
     # --- full phase ---
     full_timeout = cfg.budget.fold_seconds * cfg.cv.n_splits + SETUP_BUFFER_SECONDS
     full_code, full_stderr = _spawn_worker(
-        "harness.worker_full",
+        spec.full_worker,
         config_abs,
         timeout=full_timeout,
         extra_env={
@@ -176,7 +220,7 @@ def _run_with_parent(
         status = f"fail:{full_status}"
         mlflow_utils.log_traceback_artifact(full_stderr, "full_traceback.txt")
         mlflow_utils.end_parent_run(status)
-        git_utils.reset_one(cwd=project_root)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
         _print_result(status, None, None, 0, time.monotonic() - t0, loc)
         return
 
@@ -186,7 +230,7 @@ def _run_with_parent(
         print("Could not read mean_score from MLflow run.")
         status = "fail:no_score"
         mlflow_utils.end_parent_run(status)
-        git_utils.reset_one(cwd=project_root)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
         _print_result(status, None, None, cfg.cv.n_splits, time.monotonic() - t0, loc)
         return
 
@@ -200,9 +244,9 @@ def _run_with_parent(
     else:
         improved = mean_score < best_score
 
-    # Log solution.py snapshot as artifact on the parent run
+    # Log the experiment file snapshot as an artifact on the parent run.
     client = mlflow.tracking.MlflowClient()
-    client.log_artifact(parent_run_id, str(project_root / "solution.py"))
+    client.log_artifact(parent_run_id, str(project_root / spec.file_name))
 
     if improved:
         mlflow_utils.end_parent_run("improved")
@@ -210,6 +254,6 @@ def _run_with_parent(
         _print_result("improved", mean_score, best_score, cfg.cv.n_splits, time.monotonic() - t0, loc)
     else:
         mlflow_utils.end_parent_run("regressed")
-        git_utils.reset_one(cwd=project_root)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
         print(f"Regressed. mean_score={mean_score:.6f} vs best={best_score:.6f} — branch reset.")
         _print_result("regressed", mean_score, best_score, cfg.cv.n_splits, time.monotonic() - t0, loc)

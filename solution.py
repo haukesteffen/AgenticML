@@ -1,7 +1,7 @@
 """
 AgenticML solution module.
 
-This file is the only thing you (the agent) edit. The harness in ``harness/``
+This file is what you edit for base-model experiments. The harness in ``harness/``
 runs cross-validation over the dataset and calls ``fit_predict`` once per fold,
 passing only the training and validation slices of that fold. You never see
 the other folds, the test set, or the CV indices themselves.

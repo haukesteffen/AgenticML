@@ -1,24 +1,28 @@
 # AgenticML
 
 AgenticML is an autoresearch-style harness for iteratively improving tabular
-ML models on Kaggle Playground competitions. You (the agent) edit
-`solution.py`; a fixed harness runs cross-validation, logs every attempt to
-MLflow, commits improvements to this experiment branch, and resets failures.
+ML models on Kaggle Playground competitions. You (the agent) edit either
+`solution.py` for base-model experiments or `ensemble.py` for OOF-backed
+ensemble experiments; a fixed harness runs cross-validation, logs every
+attempt to MLflow, commits improvements to this experiment branch, and resets
+failures.
 
 Task details (dataset, target, metric, problem type) live in `config.yaml`.
-Read the module docstring of `solution.py` for the full contract on
+Read the module docstring of the file you are editing for the full contract on
 `HYPOTHESIS` and `fit_predict`.
 
 ## What you edit
-- `solution.py` — your model code (the only file the harness executes)
+- `solution.py` — base-model experiments
+- `ensemble.py` — OOF-backed blend / stacker experiments
 - `NOTES.md` — optional scratchpad for cross-attempt planning
 
 ## Harness lifecycle
 
 When you run `python -m harness run`, the following happens in order:
 
-1. **Commit** — the harness commits your changes to `solution.py` (and
-   `NOTES.md` if present) using `HYPOTHESIS` as the commit message.
+1. **Commit** — the harness commits your changes to exactly one experiment
+   file (`solution.py` or `ensemble.py`, plus `NOTES.md` if present) using
+   `HYPOTHESIS` as the commit message.
 2. **Smoke test** — runs `fit_predict` on a small data subset (2 folds,
    5 % of data) with a short timeout. Catches obvious crashes cheaply.
 3. **Full CV** — runs all folds of cross-validation. Each fold has a hard
@@ -27,8 +31,8 @@ When you run `python -m harness run`, the following happens in order:
 4. **Score comparison** — the harness compares the mean CV score against
    the best previous `status=improved` run on this branch.
    - **Improved**: the commit stays; the branch moves forward.
-   - **Regressed** (or any failure): the commit is reset
-     (`git reset --hard HEAD~1`) and the branch returns to the previous
+   - **Regressed** (or any failure): the harness discards the just-tested
+     experiment file changes and returns the branch to the previous
      best state.
 
 The run finishes by printing a machine-readable summary line:
@@ -45,9 +49,10 @@ timeout (`budget.smoke_seconds`).
 
 ## Rules
 
-- The **only** command that executes `solution.py` is `python -m harness run`.
-  Never import, run, or test `solution.py` directly — doing so bypasses the
-  time budget, commit logic, and MLflow logging.
+- The **only** command that executes your experiment file is
+  `python -m harness run`. Never import, run, or test `solution.py` or
+  `ensemble.py` directly — doing so bypasses the time budget, commit logic,
+  and MLflow logging.
 - After running `python -m harness run`, **wait for the process to finish**
   and read the `RESULT` line before doing anything else.
 - `HYPOTHESIS` must be a plain string literal at module scope.
@@ -72,9 +77,9 @@ you are changing too much — split it into separate attempts.
 ## Workflow
 
 1. `python -m harness status` — see recent attempts and the current best score
-2. Read current `solution.py`
-3. Pick **one** axis to change (see Change discipline). Edit `solution.py`
-   — update `fit_predict` for that one axis only, and set `HYPOTHESIS` to
-   a single clause naming the axis and the change.
+2. Read the current experiment file (`solution.py` or `ensemble.py`)
+3. Pick **one** axis to change (see Change discipline). Edit exactly one
+   experiment file — update `fit_predict` for that one axis only, and set
+   `HYPOTHESIS` to a single clause naming the axis and the change.
 4. `python -m harness run` — wait for the `RESULT` line
 5. Read the output, then iterate

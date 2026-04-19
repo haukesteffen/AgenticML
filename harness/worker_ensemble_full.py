@@ -1,15 +1,4 @@
-"""Full CV worker — runs all folds with MLflow autolog and per-fold child runs.
-
-Uses MlflowClient to log aggregates to the parent run (avoids cross-process
-run reactivation which is unreliable). Fold runs declare their parent via
-the mlflow.parentRunId tag.
-
-Exit codes:
-  0 = success
-  1 = crash
-  2 = invalid output
-  3 = per-fold timeout
-"""
+"""Full CV worker for OOF-backed ensemble experiments."""
 from __future__ import annotations
 
 import argparse
@@ -26,7 +15,7 @@ import pandas as pd
 
 from harness.config import HarnessConfig
 from harness.cv import build_cv
-from harness.ensemble_utils import build_oof_manifest, log_json_artifact
+from harness.ensemble_utils import build_meta_frame, build_oof_manifest, log_json_artifact
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
@@ -49,9 +38,6 @@ def main() -> int:
 
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
-    X = train_df.drop(columns=[cfg.dataset.target])
-    if cfg.dataset.id_column in X.columns:
-        X = X.drop(columns=[cfg.dataset.id_column])
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -67,13 +53,21 @@ def main() -> int:
     experiment_id = ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}")
 
     sys.path.insert(0, str(cfg.project_root))
-    import solution
+    import ensemble
+
+    meta_df, lineage = build_meta_frame(
+        cfg,
+        train_df,
+        n_classes,
+        getattr(ensemble, "SOURCES", None),
+        classes=classes,
+    )
 
     setup_autolog()
 
     metric_fn, _ = get_metric(cfg.metric.name)
     cv = build_cv(cfg.dataset.problem_type, cfg.cv)
-    split_args = (X, y) if cfg.dataset.problem_type != "regression" else (X,)
+    split_args = (meta_df, y) if cfg.dataset.problem_type != "regression" else (meta_df,)
 
     if cfg.dataset.problem_type == "multiclass_classification":
         oof = np.full((len(y), n_classes), np.nan)
@@ -83,13 +77,15 @@ def main() -> int:
     fold_scores: list[float] = []
     parent_run_id = os.environ.pop("MLFLOW_RUN_ID")
     client = mlflow.tracking.MlflowClient()
+    client.set_tag(parent_run_id, "source_count", str(len(lineage)))
+    log_json_artifact(client, parent_run_id, "sources.json", {"sources": lineage})
     fold_seconds = cfg.budget.fold_seconds
 
     prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
 
     for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
-        X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
-        X_va, y_va = X.iloc[va_idx], y[va_idx]
+        X_tr, y_tr = meta_df.iloc[tr_idx], y[tr_idx]
+        X_va, y_va = meta_df.iloc[va_idx], y[va_idx]
 
         with mlflow.start_run(
             experiment_id=experiment_id,
@@ -97,7 +93,7 @@ def main() -> int:
             tags={"mlflow.parentRunId": parent_run_id},
         ):
             signal.alarm(fold_seconds)
-            preds = solution.fit_predict(X_tr, y_tr, X_va)
+            preds = ensemble.fit_predict(X_tr, y_tr, X_va)
             signal.alarm(0)
 
             preds = np.asarray(preds)

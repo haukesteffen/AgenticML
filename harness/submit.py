@@ -73,6 +73,13 @@ def _submit_inner(
     source_run = client.get_run(run_id)
     source_tags = source_run.data.tags
     source_metrics = source_run.data.metrics
+    experiment_kind = source_tags.get("experiment_kind", "model")
+    if experiment_kind != "model":
+        raise RuntimeError(
+            "Submission for ensemble runs is not implemented yet. "
+            "Materialize base-model test predictions first, then submit the blended result."
+        )
+
     source_branch = source_tags.get("branch", branch)
     source_sha = source_tags.get("sha", "")
     hypothesis = source_tags.get("hypothesis", "[missing hypothesis]")

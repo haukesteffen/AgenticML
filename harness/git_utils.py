@@ -24,13 +24,27 @@ def head_sha(cwd: Path | None = None) -> str:
     return _run_git("rev-parse", "HEAD", cwd=cwd)
 
 
-def solution_has_diff(cwd: Path | None = None) -> bool:
+def file_has_diff(path: str, cwd: Path | None = None) -> bool:
     result = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "solution.py"],
+        ["git", "status", "--porcelain", "--", path],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    return bool(result.stdout.strip())
+
+
+def solution_has_diff(cwd: Path | None = None) -> bool:
+    return file_has_diff("solution.py", cwd=cwd)
+
+
+def file_exists_in_head(path: str, cwd: Path | None = None) -> bool:
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"HEAD:{path}"],
         cwd=cwd,
         capture_output=True,
     )
-    return result.returncode != 0
+    return result.returncode == 0
 
 
 def read_hypothesis_via_ast(solution_path: Path) -> str:
@@ -57,5 +71,20 @@ def commit_allowlist(files: list[str], message: str, cwd: Path | None = None) ->
     return head_sha(cwd)
 
 
-def reset_one(cwd: Path | None = None) -> None:
-    _run_git("reset", "--hard", "HEAD~1", cwd=cwd)
+def reset_one(files: list[str], cwd: Path | None = None) -> None:
+    _run_git("reset", "--soft", "HEAD~1", cwd=cwd)
+
+    for path in files:
+        if file_exists_in_head(path, cwd=cwd):
+            _run_git("restore", "--source=HEAD", "--staged", "--worktree", "--", path, cwd=cwd)
+            continue
+
+        subprocess.run(
+            ["git", "rm", "--cached", "-f", "--", path],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
+        file_path = (cwd / path) if cwd else Path(path)
+        if file_path.exists():
+            file_path.unlink()

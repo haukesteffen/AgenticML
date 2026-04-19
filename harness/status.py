@@ -43,6 +43,7 @@ def status(config_path: str = "config.yaml", limit: int = 10) -> None:
         entry = {
             "sha": row.get("tags.sha", ""),
             "status": row.get("tags.status", ""),
+            "experiment_kind": row.get("tags.experiment_kind", "model"),
             "hypothesis": row.get("tags.hypothesis", ""),
             "mean_score": _clean(row.get("metrics.mean_score")),
             "std_score": _clean(row.get("metrics.std_score")),
