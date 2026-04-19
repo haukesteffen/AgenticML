@@ -53,8 +53,10 @@ Rules
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "logistic stacker on three strong source families"
+HYPOTHESIS = "holdout-tuned class-prior calibration for logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -68,17 +70,52 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Fit a lightweight logistic stacker on OOF meta-features."""
+    """Fit logistic stacking, then class-prior calibrate probabilities."""
     if not SOURCES:
         raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
+
+    X_train_np = X_train.to_numpy()
+    X_val_np = X_val.to_numpy()
+    X_fit, X_cal, y_fit, y_cal = train_test_split(
+        X_train_np,
+        y_train,
+        test_size=0.2,
+        stratify=y_train,
+        random_state=42,
+    )
+
+    calib_model = LogisticRegression(
+        max_iter=1000,
+        class_weight="balanced",
+        solver="lbfgs",
+    )
+    calib_model.fit(X_fit, y_fit)
+    cal_proba = calib_model.predict_proba(X_cal)
 
     model = LogisticRegression(
         max_iter=1000,
         class_weight="balanced",
         solver="lbfgs",
     )
-    model.fit(X_train.to_numpy(), y_train)
-    preds = model.predict_proba(X_val.to_numpy())
-    if preds.ndim == 2 and preds.shape[1] == 1:
-        return preds[:, 0]
-    return preds
+    model.fit(X_train_np, y_train)
+    val_proba = model.predict_proba(X_val_np)
+    if val_proba.ndim == 2 and val_proba.shape[1] == 1:
+        return val_proba[:, 0]
+
+    class_counts = np.bincount(y_train, minlength=val_proba.shape[1]).astype(float)
+    class_priors = np.clip(class_counts / class_counts.sum(), 1e-6, 1.0)
+
+    best_gamma = 0.0
+    best_score = -np.inf
+    for gamma in np.linspace(0.0, 1.5, 16):
+        adjusted = cal_proba / np.power(class_priors, gamma)
+        adjusted /= adjusted.sum(axis=1, keepdims=True)
+        pred_labels = adjusted.argmax(axis=1)
+        score = balanced_accuracy_score(y_cal, pred_labels)
+        if score > best_score:
+            best_score = score
+            best_gamma = float(gamma)
+
+    val_adjusted = val_proba / np.power(class_priors, best_gamma)
+    val_adjusted /= val_adjusted.sum(axis=1, keepdims=True)
+    return val_adjusted
