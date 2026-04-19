@@ -156,6 +156,12 @@ def _module_loc(project_root: Path, file_name: str) -> int:
         return 0
 
 
+def _smoke_timeout(cfg: HarnessConfig, spec: ExperimentSpec) -> int:
+    if spec.kind == "ensemble":
+        return cfg.budget.smoke_seconds + SETUP_BUFFER_SECONDS
+    return cfg.budget.smoke_seconds
+
+
 def _print_result(status: str, score, best, n_folds: int, elapsed: float, loc: int) -> None:
     score_s = f"{score:.6f}" if isinstance(score, float) else "-"
     best_s = f"{best:.6f}" if isinstance(best, float) else "-"
@@ -182,7 +188,7 @@ def _run_with_parent(
     smoke_code, smoke_stderr = _spawn_worker(
         spec.smoke_worker,
         config_abs,
-        timeout=cfg.budget.smoke_seconds,
+        timeout=_smoke_timeout(cfg, spec),
     )
     smoke_status = _classify_worker_exit(smoke_code)
 
