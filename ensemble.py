@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "logistic stacker adding mlp2 source diversity"
+HYPOTHESIS = "holdout-tuned logistic C for class-prior calibrated stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -86,15 +86,30 @@ def fit_predict(
         random_state=42,
     )
 
-    calib_model = LogisticRegression(
-        max_iter=1000,
-        class_weight="balanced",
-        solver="lbfgs",
-    )
-    calib_model.fit(X_fit, y_fit)
-    cal_proba = calib_model.predict_proba(X_cal)
+    candidate_cs = [0.25, 0.5, 1.0, 2.0, 4.0]
+    best_c = 1.0
+    best_c_score = -np.inf
+    best_cal_proba = None
+    for c_val in candidate_cs:
+        candidate_model = LogisticRegression(
+            C=c_val,
+            max_iter=1000,
+            class_weight="balanced",
+            solver="lbfgs",
+        )
+        candidate_model.fit(X_fit, y_fit)
+        candidate_proba = candidate_model.predict_proba(X_cal)
+        candidate_pred = candidate_proba.argmax(axis=1)
+        candidate_score = balanced_accuracy_score(y_cal, candidate_pred)
+        if candidate_score > best_c_score:
+            best_c_score = candidate_score
+            best_c = float(c_val)
+            best_cal_proba = candidate_proba
+
+    cal_proba = best_cal_proba
 
     model = LogisticRegression(
+        C=best_c,
         max_iter=1000,
         class_weight="balanced",
         solver="lbfgs",
