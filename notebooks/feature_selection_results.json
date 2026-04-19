@@ -1,0 +1,72 @@
+{
+  "gbdt_drops": [
+    "Crop_Type",
+    "Field_Area_hectare",
+    "Humidity",
+    "Irrigation_Type",
+    "Organic_Carbon",
+    "Previous_Irrigation_mm",
+    "Region",
+    "Season",
+    "Soil_Type",
+    "Soil_pH",
+    "Sunlight_Hours",
+    "Water_Source"
+  ],
+  "mlp_drops": [
+    "Crop_Type",
+    "Electrical_Conductivity",
+    "Field_Area_hectare",
+    "Humidity",
+    "Irrigation_Type",
+    "Organic_Carbon",
+    "Region",
+    "Season",
+    "Soil_pH"
+  ],
+  "linear_drops": [
+    "Electrical_Conductivity",
+    "Field_Area_hectare",
+    "Humidity",
+    "Organic_Carbon",
+    "Region",
+    "Season",
+    "Soil_Type",
+    "Sunlight_Hours",
+    "Water_Source"
+  ],
+  "globally_safe_drops": [
+    "Field_Area_hectare",
+    "Humidity",
+    "Organic_Carbon",
+    "Region",
+    "Season"
+  ],
+  "gbdt_only_drops": [
+    "Previous_Irrigation_mm"
+  ],
+  "mlp_only_drops": [],
+  "linear_only_drops": [],
+  "metadata": {
+    "methodology": "permutation_importance_balanced_accuracy",
+    "n_null_requested": 50,
+    "n_null_done": {
+      "gbdt": 50,
+      "mlp": 50,
+      "linear": 50
+    },
+    "baseline_balanced_accuracy": {
+      "gbdt": 0.9567235498166009,
+      "mlp": 0.9341011187996381,
+      "linear": 0.7769195731617748
+    },
+    "subsample_rows": 80000,
+    "train_rows": 64000,
+    "val_rows": 16000,
+    "seed": 42,
+    "label_thresholds": {
+      "keep": 0.99,
+      "borderline": 0.95
+    }
+  }
+}
