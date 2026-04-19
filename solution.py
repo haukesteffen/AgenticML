@@ -61,7 +61,7 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparameters: gamma=0.5 for minimum split loss"
+HYPOTHESIS = "hyperparameters: reg_lambda=2 for L2 regularization on leaf weights"
 
 
 def _add_features(X: pd.DataFrame) -> pd.DataFrame:
@@ -85,7 +85,16 @@ def fit_predict(
         X_train[col] = X_train[col].astype(categories)
         X_val[col] = X_val[col].astype(categories)
 
-    model = XGBClassifier(enable_categorical=True, tree_method="hist", colsample_bytree=0.8, max_bin=4096, max_depth=4, n_estimators=300, gamma=0.5)
+    model = XGBClassifier(
+        enable_categorical=True,
+        tree_method="hist",
+        colsample_bytree=0.8,
+        max_bin=4096,
+        max_depth=4,
+        n_estimators=300,
+        gamma=0.5,
+        reg_lambda=2,
+    )
     sample_weight = compute_sample_weight(class_weight="balanced", y=y_train)
     model.fit(X_train, y_train, sample_weight=sample_weight)
     return model.predict_proba(X_val)
