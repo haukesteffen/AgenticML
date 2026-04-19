@@ -56,11 +56,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "holdout-tuned class-prior calibration for logistic stacker"
+HYPOTHESIS = "holdout-calibrated logistic stacker adding realmlp source diversity"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
     {"alias": "lightgbm2", "branch": "exp/lightgbm2", "selector": "best_improved"},
+    {"alias": "realmlp", "branch": "exp/realmlp", "selector": "best_improved"},
     {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
 ]
 
