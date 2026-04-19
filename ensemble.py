@@ -53,11 +53,13 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average over selected source runs"
+HYPOTHESIS = "equal-weight average over four strong model families"
 
 SOURCES = [
-    # {"alias": "lgbm", "branch": "exp/lightgbm", "selector": "best_improved"},
-    # {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
+    {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
+    {"alias": "lightgbm2", "branch": "exp/lightgbm2", "selector": "best_improved"},
+    {"alias": "mlp2", "branch": "exp/mlp2", "selector": "best_improved"},
+    {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
 ]
 
 
