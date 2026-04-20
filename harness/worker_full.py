@@ -94,7 +94,7 @@ def main() -> int:
 
         oof[va_idx] = preds
         score = metric_fn(y_va, preds, cfg.dataset.problem_type)
-        client.log_metric(parent_run_id, "fold_score", score, step=fold_i)
+        client.log_metric(parent_run_id, f"fold_score_{fold_i}", score)
         fold_scores.append(score)
 
     signal.signal(signal.SIGALRM, prev_handler)

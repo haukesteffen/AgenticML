@@ -37,7 +37,7 @@ Drop your competition's `train.csv` into `data/` and update `config.yaml` with t
 
 ## MLflow
 
-Each `exp/<name>` branch gets its own MLflow experiment (`{prefix}_{slug}_{branch}`). Parent runs track the attempt-level summary (`hypothesis`, `mean_score`, `std_score`, `status`, `experiment_kind`) plus step-indexed `fold_score` history for each CV fold. The parent run also stores the edited experiment file snapshot (`solution.py` or `ensemble.py`). Base-model CV runs log `oof_predictions.npy`, `test_predictions.npy`, and `predictions_manifest.json` — the full-train refit materializes test predictions at CV time so submissions are a no-refit artifact download. Ensemble runs log `sources.json`, `oof_predictions.npy`, `test_predictions.npy`, and `predictions_manifest.json`.
+Each `exp/<name>` branch gets its own MLflow experiment (`{prefix}_{slug}_{branch}`). Parent runs track the attempt-level summary (`hypothesis`, `mean_score`, `std_score`, `status`, `experiment_kind`) plus one metric per CV fold (`fold_score_0`, `fold_score_1`, ...). The parent run also stores the edited experiment file snapshot (`solution.py` or `ensemble.py`). Base-model CV runs log `oof_predictions.npy`, `test_predictions.npy`, and `predictions_manifest.json` — the full-train refit materializes test predictions at CV time so submissions are a no-refit artifact download. Ensemble runs log `sources.json`, `oof_predictions.npy`, `test_predictions.npy`, and `predictions_manifest.json`.
 
 ## Ensembling
 
