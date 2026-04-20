@@ -15,7 +15,7 @@ import pandas as pd
 
 from harness.config import HarnessConfig
 from harness.cv import build_cv
-from harness.ensemble_utils import build_meta_frame, log_json_artifact
+from harness.ensemble_utils import build_meta_frames, build_predictions_manifest, log_json_artifact
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
@@ -56,7 +56,7 @@ def main() -> int:
     sys.path.insert(0, str(cfg.project_root))
     import ensemble
 
-    meta_df, lineage = build_meta_frame(
+    meta_train, meta_test, lineage = build_meta_frames(
         cfg,
         train_df,
         test_df,
@@ -69,7 +69,7 @@ def main() -> int:
 
     metric_fn, _ = get_metric(cfg.metric.name)
     cv = build_cv(cfg.dataset.problem_type, cfg.cv)
-    split_args = (meta_df, y) if cfg.dataset.problem_type != "regression" else (meta_df,)
+    split_args = (meta_train, y) if cfg.dataset.problem_type != "regression" else (meta_train,)
 
     if cfg.dataset.problem_type == "multiclass_classification":
         oof = np.full((len(y), n_classes), np.nan)
@@ -86,8 +86,8 @@ def main() -> int:
     prev_handler = signal.signal(signal.SIGALRM, _alarm_handler)
 
     for fold_i, (tr_idx, va_idx) in enumerate(cv.split(*split_args)):
-        X_tr, y_tr = meta_df.iloc[tr_idx], y[tr_idx]
-        X_va, y_va = meta_df.iloc[va_idx], y[va_idx]
+        X_tr, y_tr = meta_train.iloc[tr_idx], y[tr_idx]
+        X_va, y_va = meta_train.iloc[va_idx], y[va_idx]
 
         with mlflow.start_run(
             experiment_id=experiment_id,
@@ -113,10 +113,30 @@ def main() -> int:
     client.log_metric(parent_run_id, "mean_score", mean_score)
     client.log_metric(parent_run_id, "std_score", std_score)
 
+    test_preds = ensemble.fit_predict(meta_train, y, meta_test)
+    test_preds = np.asarray(test_preds)
+    validate_predictions(test_preds, len(test_df), n_classes, cfg.dataset.problem_type)
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        oof_path = Path(tmpdir) / "oof_predictions.npy"
+        tmpdir_path = Path(tmpdir)
+        oof_path = tmpdir_path / "oof_predictions.npy"
         np.save(str(oof_path), oof)
         client.log_artifact(parent_run_id, str(oof_path))
+
+        test_path = tmpdir_path / "test_predictions.npy"
+        np.save(str(test_path), test_preds)
+        client.log_artifact(parent_run_id, str(test_path))
+
+    manifest = build_predictions_manifest(
+        cfg,
+        train_df,
+        test_df,
+        n_classes,
+        oof.shape,
+        test_preds.shape,
+        classes=classes,
+    )
+    log_json_artifact(client, parent_run_id, "predictions_manifest.json", manifest)
 
     return 0
 

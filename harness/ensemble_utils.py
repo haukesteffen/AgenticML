@@ -131,7 +131,7 @@ def log_json_artifact(
         client.log_artifact(run_id, str(path))
 
 
-def build_meta_frame(
+def build_meta_frames(
     cfg: HarnessConfig,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -139,7 +139,7 @@ def build_meta_frame(
     raw_sources: Any,
     *,
     classes: Any = None,
-) -> tuple[pd.DataFrame, list[dict[str, object]]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, object]]]:
     specs = parse_source_specs(raw_sources)
     if not specs:
         raise ValueError("SOURCES must contain at least one source.")
@@ -156,7 +156,8 @@ def build_meta_frame(
     )
 
     client = mlflow.tracking.MlflowClient()
-    frames: list[pd.DataFrame] = []
+    train_frames: list[pd.DataFrame] = []
+    test_frames: list[pd.DataFrame] = []
     lineage: list[dict[str, object]] = []
 
     with tempfile.TemporaryDirectory() as tmpdir_str:
@@ -165,25 +166,42 @@ def build_meta_frame(
             source_dir = tmpdir / source.alias
             source_dir.mkdir(parents=True, exist_ok=True)
 
-            oof_path = Path(client.download_artifacts(source.run_id, "oof_predictions.npy", str(source_dir)))
-            preds = np.load(str(oof_path))
-            preds = _normalize_source_predictions(
-                source.alias,
-                preds,
+            oof_preds = _download_and_load_predictions(
+                client,
+                source,
+                artifact="oof_predictions.npy",
+                out_dir=source_dir,
                 expected_rows=len(train_df),
                 n_classes=n_classes,
                 problem_type=cfg.dataset.problem_type,
             )
+            test_preds = _download_and_load_predictions(
+                client,
+                source,
+                artifact="test_predictions.npy",
+                out_dir=source_dir,
+                expected_rows=len(test_df),
+                n_classes=n_classes,
+                problem_type=cfg.dataset.problem_type,
+            )
 
-            manifest = _load_optional_manifest(client, source.run_id, source_dir)
-            if manifest is not None:
-                _validate_manifest(source.alias, manifest, current_manifest)
+            manifest = _load_required_manifest(client, source, source_dir)
+            _validate_manifest(source.alias, manifest, current_manifest)
 
-            frames.append(
+            train_frames.append(
                 _predictions_to_frame(
                     source.alias,
-                    preds,
+                    oof_preds,
                     index=train_df.index,
+                    n_classes=n_classes,
+                    problem_type=cfg.dataset.problem_type,
+                )
+            )
+            test_frames.append(
+                _predictions_to_frame(
+                    source.alias,
+                    test_preds,
+                    index=test_df.index,
                     n_classes=n_classes,
                     problem_type=cfg.dataset.problem_type,
                 )
@@ -197,11 +215,39 @@ def build_meta_frame(
                     "hypothesis": source.hypothesis,
                     "mean_score": source.mean_score,
                     "experiment_kind": source.experiment_kind,
-                    "manifest_present": manifest is not None,
                 }
             )
 
-    return pd.concat(frames, axis=1), lineage
+    return pd.concat(train_frames, axis=1), pd.concat(test_frames, axis=1), lineage
+
+
+def _download_and_load_predictions(
+    client: mlflow.tracking.MlflowClient,
+    source: "ResolvedSource",
+    *,
+    artifact: str,
+    out_dir: Path,
+    expected_rows: int,
+    n_classes: int,
+    problem_type: str,
+) -> np.ndarray:
+    try:
+        path = Path(client.download_artifacts(source.run_id, artifact, str(out_dir)))
+    except Exception as e:
+        raise RuntimeError(
+            f"Source {source.alias!r} (run_id={source.run_id}, branch={source.branch!r}) "
+            f"is missing artifact {artifact!r}. Re-run that branch so it produces the "
+            f"cached prediction artifacts."
+        ) from e
+
+    preds = np.load(str(path))
+    return _normalize_source_predictions(
+        source.alias,
+        preds,
+        expected_rows=expected_rows,
+        n_classes=n_classes,
+        problem_type=problem_type,
+    )
 
 
 def resolve_sources(cfg: HarnessConfig, specs: list[SourceSpec]) -> list[ResolvedSource]:
@@ -308,17 +354,21 @@ def _predictions_to_frame(
     return pd.DataFrame({f"{alias}__pred": preds}, index=index)
 
 
-def _load_optional_manifest(
+def _load_required_manifest(
     client: mlflow.tracking.MlflowClient,
-    run_id: str,
+    source: "ResolvedSource",
     out_dir: Path,
-) -> dict[str, object] | None:
+) -> dict[str, object]:
     try:
         manifest_path = Path(
-            client.download_artifacts(run_id, "predictions_manifest.json", str(out_dir))
+            client.download_artifacts(source.run_id, "predictions_manifest.json", str(out_dir))
         )
-    except Exception:
-        return None
+    except Exception as e:
+        raise RuntimeError(
+            f"Source {source.alias!r} (run_id={source.run_id}, branch={source.branch!r}) "
+            f"is missing predictions_manifest.json. Re-run that branch so it produces "
+            f"the manifest alongside its predictions."
+        ) from e
 
     return json.loads(manifest_path.read_text())
 
