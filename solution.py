@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "feature engineering: add pairwise numeric interaction features"
+HYPOTHESIS = "hyperparameters: switch logistic regression solver to newton-cholesky"
 
 
 def fit_predict(
@@ -74,10 +74,6 @@ def fit_predict(
     train_dist = np.linalg.norm(X_train_num[:, None, :] - centroids[None, :, :], axis=2)
     val_dist = np.linalg.norm(X_val_num[:, None, :] - centroids[None, :, :], axis=2)
 
-    interaction_pairs = [(i, j) for i in range(len(numeric_cols)) for j in range(i + 1, len(numeric_cols))]
-    train_inter = np.column_stack([X_train_num[:, i] * X_train_num[:, j] for i, j in interaction_pairs])
-    val_inter = np.column_stack([X_val_num[:, i] * X_val_num[:, j] for i, j in interaction_pairs])
-
     X_train_aug = X_train.copy()
     X_val_aug = X_val.copy()
     for i, col in enumerate(numeric_cols):
@@ -89,19 +85,14 @@ def fit_predict(
         X_train_aug[col] = train_dist[:, i]
         X_val_aug[col] = val_dist[:, i]
 
-    inter_cols = [f"num_inter_{i}_{j}" for i, j in interaction_pairs]
-    for i, col in enumerate(inter_cols):
-        X_train_aug[col] = train_inter[:, i]
-        X_val_aug[col] = val_inter[:, i]
-
     preprocessor = ColumnTransformer([
-        ("num", "passthrough", numeric_cols + dist_cols + inter_cols),
+        ("num", "passthrough", numeric_cols + dist_cols),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
     ])
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.5)),
+        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.5, solver="newton-cholesky")),
     ])
     pipe.fit(X_train_aug, y_train)
     return pipe.predict_proba(X_val_aug)
