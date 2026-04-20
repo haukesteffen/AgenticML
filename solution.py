@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: logistic regression with balanced class weights and C=0.5"
+HYPOTHESIS = "feature engineering: add class-centroid distance features from scaled numerics"
 
 
 def fit_predict(
@@ -65,8 +65,28 @@ def fit_predict(
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
+    scaler = StandardScaler()
+    X_train_num = scaler.fit_transform(X_train[numeric_cols])
+    X_val_num = scaler.transform(X_val[numeric_cols])
+
+    classes = np.unique(y_train)
+    centroids = np.vstack([X_train_num[y_train == cls].mean(axis=0) for cls in classes])
+    train_dist = np.linalg.norm(X_train_num[:, None, :] - centroids[None, :, :], axis=2)
+    val_dist = np.linalg.norm(X_val_num[:, None, :] - centroids[None, :, :], axis=2)
+
+    X_train_aug = X_train.copy()
+    X_val_aug = X_val.copy()
+    for i, col in enumerate(numeric_cols):
+        X_train_aug[col] = X_train_num[:, i]
+        X_val_aug[col] = X_val_num[:, i]
+
+    dist_cols = [f"centroid_dist_{cls}" for cls in classes]
+    for i, col in enumerate(dist_cols):
+        X_train_aug[col] = train_dist[:, i]
+        X_val_aug[col] = val_dist[:, i]
+
     preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
+        ("num", "passthrough", numeric_cols + dist_cols),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
     ])
 
@@ -74,5 +94,5 @@ def fit_predict(
         ("preprocess", preprocessor),
         ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.5)),
     ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    pipe.fit(X_train_aug, y_train)
+    return pipe.predict_proba(X_val_aug)
