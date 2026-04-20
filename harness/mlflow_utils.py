@@ -1,19 +1,7 @@
 from __future__ import annotations
 
 import mlflow
-import mlflow.sklearn
 from mlflow.entities import ViewType
-
-
-def setup_autolog() -> None:
-    mlflow.sklearn.autolog(
-        log_models=False,
-        log_datasets=False,
-        log_input_examples=False,
-        log_model_signatures=False,
-        log_post_training_metrics=False,
-        silent=True,
-    )
 
 
 def ensure_experiment(experiment_name: str) -> str:

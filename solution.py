@@ -32,13 +32,6 @@ Return shape
   ascending class-index order (matching pd.factorize
   with sort=True)
 
-What the harness captures automatically
----------------------------------------
-``mlflow.autolog()`` is enabled in the worker before ``fit_predict`` runs.
-Any sklearn / xgboost / lightgbm estimator you call ``.fit()`` on has its
-hyperparameters logged automatically into a per-fold nested MLflow run.
-You do NOT need to import mlflow or log anything yourself.
-
 Rules
 -----
 - Do not import or call mlflow — the harness owns logging.

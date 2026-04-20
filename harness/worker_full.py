@@ -1,8 +1,7 @@
-"""Full CV worker — runs all folds with MLflow autolog and per-fold child runs.
+"""Full CV worker — runs all folds and logs metrics onto the parent MLflow run.
 
-Uses MlflowClient to log aggregates to the parent run (avoids cross-process
-run reactivation which is unreliable). Fold runs declare their parent via
-the mlflow.parentRunId tag.
+Uses MlflowClient to log fold scores, aggregates, and artifacts to the parent
+run directly, avoiding cross-process run reactivation.
 
 Exit codes:
   0 = success
@@ -28,7 +27,6 @@ from harness.config import HarnessConfig
 from harness.cv import build_cv
 from harness.ensemble_utils import build_predictions_manifest, log_json_artifact
 from harness.metric import get_metric
-from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
 
 EXIT_FOLD_TIMEOUT = 3
@@ -64,14 +62,8 @@ def main() -> int:
         classes = None
         n_classes = 0
 
-    branch = os.environ.get("HARNESS_BRANCH", "unknown")
-    slug = os.environ.get("HARNESS_SLUG", "")
-    experiment_id = ensure_experiment(f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}")
-
     sys.path.insert(0, str(cfg.project_root))
     import solution
-
-    setup_autolog()
 
     metric_fn, _ = get_metric(cfg.metric.name)
     cv = build_cv(cfg.dataset.problem_type, cfg.cv)
@@ -93,22 +85,17 @@ def main() -> int:
         X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
         X_va, y_va = X.iloc[va_idx], y[va_idx]
 
-        with mlflow.start_run(
-            experiment_id=experiment_id,
-            run_name=f"fold_{fold_i}",
-            tags={"mlflow.parentRunId": parent_run_id},
-        ):
-            signal.alarm(fold_seconds)
-            preds = solution.fit_predict(X_tr, y_tr, X_va)
-            signal.alarm(0)
+        signal.alarm(fold_seconds)
+        preds = solution.fit_predict(X_tr, y_tr, X_va)
+        signal.alarm(0)
 
-            preds = np.asarray(preds)
-            validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
+        preds = np.asarray(preds)
+        validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
 
-            oof[va_idx] = preds
-            score = metric_fn(y_va, preds, cfg.dataset.problem_type)
-            mlflow.log_metric("fold_score", score)
-            fold_scores.append(score)
+        oof[va_idx] = preds
+        score = metric_fn(y_va, preds, cfg.dataset.problem_type)
+        client.log_metric(parent_run_id, "fold_score", score, step=fold_i)
+        fold_scores.append(score)
 
     signal.signal(signal.SIGALRM, prev_handler)
 
