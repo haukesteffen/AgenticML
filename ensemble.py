@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "add per-class source vote-fraction meta-features to logistic stacker"
+HYPOTHESIS = "add catboost-minus-xgb per-class delta features to logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -128,6 +128,17 @@ def fit_predict(
         )
         extra_train.append(train_vote_frac)
         extra_val.append(val_vote_frac)
+
+    # Strong-pair disagreement signal: per-class probability deltas.
+    pair_left = "catboost"
+    pair_right = "xgb"
+    left_cols = [idx for idx, col in enumerate(X_train.columns) if col.startswith(f"{pair_left}__class_")]
+    right_cols = [idx for idx, col in enumerate(X_train.columns) if col.startswith(f"{pair_right}__class_")]
+    if left_cols and len(left_cols) == len(right_cols):
+        left_cols = sorted(left_cols, key=lambda idx: int(X_train.columns[idx].rsplit("__class_", maxsplit=1)[1]))
+        right_cols = sorted(right_cols, key=lambda idx: int(X_train.columns[idx].rsplit("__class_", maxsplit=1)[1]))
+        extra_train.append(X_train_np[:, left_cols] - X_train_np[:, right_cols])
+        extra_val.append(X_val_np[:, left_cols] - X_val_np[:, right_cols])
 
     if extra_train:
         X_train_np = np.hstack([X_train_log_odds, *extra_train])
