@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "holdout-tuned logistic C for class-prior calibrated stacker"
+HYPOTHESIS = "log-odds transformed meta-features for calibrated logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -76,8 +76,11 @@ def fit_predict(
     if not SOURCES:
         raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
 
-    X_train_np = X_train.to_numpy()
-    X_val_np = X_val.to_numpy()
+    X_train_np = X_train.to_numpy(dtype=float)
+    X_val_np = X_val.to_numpy(dtype=float)
+    eps = 1e-6
+    X_train_np = np.log(np.clip(X_train_np, eps, 1.0 - eps) / np.clip(1.0 - X_train_np, eps, 1.0))
+    X_val_np = np.log(np.clip(X_val_np, eps, 1.0 - eps) / np.clip(1.0 - X_val_np, eps, 1.0))
     X_fit, X_cal, y_fit, y_cal = train_test_split(
         X_train_np,
         y_train,
