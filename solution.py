@@ -51,9 +51,9 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import KBinsDiscretizer, OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: nudge logistic regression C to 0.23"
+HYPOTHESIS = "feature engineering: replace KBinsDiscretizer with SplineTransformer on numeric columns"
 
 
 def fit_predict(
@@ -88,8 +88,8 @@ def fit_predict(
     preprocessor = ColumnTransformer([
         ("num", "passthrough", numeric_cols + dist_cols),
         (
-            "num_bins",
-            KBinsDiscretizer(n_bins=8, encode="onehot-dense", strategy="quantile"),
+            "num_spline",
+            SplineTransformer(n_knots=6, degree=3, include_bias=False),
             numeric_cols,
         ),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
