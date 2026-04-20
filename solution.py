@@ -51,9 +51,9 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import KBinsDiscretizer, OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: switch logistic regression solver to newton-cholesky"
+HYPOTHESIS = "feature engineering: add binned numeric features to the linear model"
 
 
 def fit_predict(
@@ -87,6 +87,11 @@ def fit_predict(
 
     preprocessor = ColumnTransformer([
         ("num", "passthrough", numeric_cols + dist_cols),
+        (
+            "num_bins",
+            KBinsDiscretizer(n_bins=8, encode="onehot-dense", strategy="quantile"),
+            numeric_cols,
+        ),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
     ])
 
