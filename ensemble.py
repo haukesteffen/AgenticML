@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "add catboost-minus-xgb per-class delta features to logistic stacker"
+HYPOTHESIS = "add per-class cross-source std and max consensus features to logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -93,6 +93,8 @@ def fit_predict(
     extra_val = []
     train_votes = []
     val_votes = []
+    train_source_blocks = []
+    val_source_blocks = []
     for prefix in source_prefixes:
         source_cols = sorted(
             [idx for idx, col in enumerate(X_train.columns) if col.startswith(f"{prefix}__class_")],
@@ -115,6 +117,8 @@ def fit_predict(
         extra_val.extend([val_entropy, val_margin])
         train_votes.append(train_source_proba.argmax(axis=1))
         val_votes.append(val_source_proba.argmax(axis=1))
+        train_source_blocks.append(train_source_proba)
+        val_source_blocks.append(val_source_proba)
 
     if train_votes:
         train_vote_labels = np.column_stack(train_votes)
@@ -128,6 +132,16 @@ def fit_predict(
         )
         extra_train.append(train_vote_frac)
         extra_val.append(val_vote_frac)
+
+    if train_source_blocks:
+        train_source_tensor = np.stack(train_source_blocks, axis=1)
+        val_source_tensor = np.stack(val_source_blocks, axis=1)
+        train_consensus_std = np.std(train_source_tensor, axis=1)
+        val_consensus_std = np.std(val_source_tensor, axis=1)
+        train_consensus_max = np.max(train_source_tensor, axis=1)
+        val_consensus_max = np.max(val_source_tensor, axis=1)
+        extra_train.extend([train_consensus_std, train_consensus_max])
+        extra_val.extend([val_consensus_std, val_consensus_max])
 
     # Strong-pair disagreement signal: per-class probability deltas.
     pair_left = "catboost"
