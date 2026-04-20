@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "add per-source entropy and margin meta-features to logistic stacker"
+HYPOTHESIS = "add per-class source vote-fraction meta-features to logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -91,6 +91,8 @@ def fit_predict(
     )
     extra_train = []
     extra_val = []
+    train_votes = []
+    val_votes = []
     for prefix in source_prefixes:
         source_cols = sorted(
             [idx for idx, col in enumerate(X_train.columns) if col.startswith(f"{prefix}__class_")],
@@ -111,6 +113,21 @@ def fit_predict(
 
         extra_train.extend([train_entropy, train_margin])
         extra_val.extend([val_entropy, val_margin])
+        train_votes.append(train_source_proba.argmax(axis=1))
+        val_votes.append(val_source_proba.argmax(axis=1))
+
+    if train_votes:
+        train_vote_labels = np.column_stack(train_votes)
+        val_vote_labels = np.column_stack(val_votes)
+        n_classes = X_train_np.shape[1] // max(len(source_prefixes), 1)
+        train_vote_frac = np.column_stack(
+            [(train_vote_labels == cls).mean(axis=1) for cls in range(n_classes)]
+        )
+        val_vote_frac = np.column_stack(
+            [(val_vote_labels == cls).mean(axis=1) for cls in range(n_classes)]
+        )
+        extra_train.append(train_vote_frac)
+        extra_val.append(val_vote_frac)
 
     if extra_train:
         X_train_np = np.hstack([X_train_log_odds, *extra_train])
