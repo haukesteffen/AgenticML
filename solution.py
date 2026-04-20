@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import KBinsDiscretizer, OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "hyperparameters: reduce logistic regression C to 0.25"
+HYPOTHESIS = "hyperparameters: nudge logistic regression C to 0.23"
 
 
 def fit_predict(
@@ -97,7 +97,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.25, solver="newton-cholesky")),
+        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.23, solver="newton-cholesky")),
     ])
     pipe.fit(X_train_aug, y_train)
     return pipe.predict_proba(X_val_aug)
