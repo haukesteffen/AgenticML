@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "vanilla linear baseline: logistic regression with scaled numerics and one-hot categoricals"
+HYPOTHESIS = "hyperparameters: logistic regression with balanced class weights"
 
 
 def fit_predict(
@@ -72,7 +72,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
+        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced")),
     ])
     pipe.fit(X_train, y_train)
     return pipe.predict_proba(X_val)
