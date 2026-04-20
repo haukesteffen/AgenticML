@@ -56,7 +56,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "log-odds transformed meta-features for calibrated logistic stacker"
+HYPOTHESIS = "add per-source entropy and margin meta-features to logistic stacker"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
@@ -79,8 +79,45 @@ def fit_predict(
     X_train_np = X_train.to_numpy(dtype=float)
     X_val_np = X_val.to_numpy(dtype=float)
     eps = 1e-6
-    X_train_np = np.log(np.clip(X_train_np, eps, 1.0 - eps) / np.clip(1.0 - X_train_np, eps, 1.0))
-    X_val_np = np.log(np.clip(X_val_np, eps, 1.0 - eps) / np.clip(1.0 - X_val_np, eps, 1.0))
+    X_train_log_odds = np.log(np.clip(X_train_np, eps, 1.0 - eps) / np.clip(1.0 - X_train_np, eps, 1.0))
+    X_val_log_odds = np.log(np.clip(X_val_np, eps, 1.0 - eps) / np.clip(1.0 - X_val_np, eps, 1.0))
+
+    source_prefixes = sorted(
+        {
+            column_name.rsplit("__class_", maxsplit=1)[0]
+            for column_name in X_train.columns
+            if "__class_" in column_name
+        }
+    )
+    extra_train = []
+    extra_val = []
+    for prefix in source_prefixes:
+        source_cols = sorted(
+            [idx for idx, col in enumerate(X_train.columns) if col.startswith(f"{prefix}__class_")],
+            key=lambda idx: int(X_train.columns[idx].rsplit("__class_", maxsplit=1)[1]),
+        )
+        if len(source_cols) < 2:
+            continue
+        train_source_proba = np.clip(X_train_np[:, source_cols], eps, 1.0)
+        val_source_proba = np.clip(X_val_np[:, source_cols], eps, 1.0)
+
+        train_entropy = -np.sum(train_source_proba * np.log(train_source_proba), axis=1, keepdims=True)
+        val_entropy = -np.sum(val_source_proba * np.log(val_source_proba), axis=1, keepdims=True)
+
+        train_top2 = np.sort(np.partition(train_source_proba, -2, axis=1)[:, -2:], axis=1)
+        val_top2 = np.sort(np.partition(val_source_proba, -2, axis=1)[:, -2:], axis=1)
+        train_margin = (train_top2[:, 1] - train_top2[:, 0]).reshape(-1, 1)
+        val_margin = (val_top2[:, 1] - val_top2[:, 0]).reshape(-1, 1)
+
+        extra_train.extend([train_entropy, train_margin])
+        extra_val.extend([val_entropy, val_margin])
+
+    if extra_train:
+        X_train_np = np.hstack([X_train_log_odds, *extra_train])
+        X_val_np = np.hstack([X_val_log_odds, *extra_val])
+    else:
+        X_train_np = X_train_log_odds
+        X_val_np = X_val_log_odds
     X_fit, X_cal, y_fit, y_cal = train_test_split(
         X_train_np,
         y_train,
