@@ -56,10 +56,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import balanced_accuracy_score
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "add per-class cross-source std and max consensus features to logistic stacker"
+HYPOTHESIS = "add lightgbm source to enriched logistic stacker ensemble"
 
 SOURCES = [
     {"alias": "catboost", "branch": "exp/catboost", "selector": "best_improved"},
+    {"alias": "lightgbm", "branch": "exp/lightgbm", "selector": "best_improved"},
     {"alias": "lightgbm2", "branch": "exp/lightgbm2", "selector": "best_improved"},
     {"alias": "mlp2", "branch": "exp/mlp2", "selector": "best_improved"},
     {"alias": "realmlp", "branch": "exp/realmlp", "selector": "best_improved"},
