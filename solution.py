@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 15 to 20"
+HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 20 to 25"
 
 
 def fit_predict(
@@ -89,7 +89,7 @@ def fit_predict(
         ("num", "passthrough", numeric_cols + dist_cols),
         (
             "num_spline",
-            SplineTransformer(n_knots=20, degree=3, include_bias=False),
+            SplineTransformer(n_knots=25, degree=3, include_bias=False),
             numeric_cols,
         ),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
