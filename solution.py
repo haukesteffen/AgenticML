@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: increase logistic regression C from 0.23 to 0.5 for wider spline feature space"
+HYPOTHESIS = "hyperparameters: increase logistic regression C from 0.5 to 1.0 continuing C sweep"
 
 
 def fit_predict(
@@ -97,7 +97,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=0.5, solver="newton-cholesky")),
+        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=1.0, solver="newton-cholesky")),
     ])
     pipe.fit(X_train_aug, y_train)
     return pipe.predict_proba(X_val_aug)
