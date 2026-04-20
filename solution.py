@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 25 to 30 continuing knot sweep"
+HYPOTHESIS = "hyperparameters: try C=1.5 between confirmed-good C=1.0 and regressed C=2.0"
 
 
 def fit_predict(
@@ -97,7 +97,7 @@ def fit_predict(
 
     pipe = Pipeline([
         ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=1.0, solver="newton-cholesky")),
+        ("model", LogisticRegression(max_iter=1000, n_jobs=-1, class_weight="balanced", C=1.5, solver="newton-cholesky")),
     ])
     pipe.fit(X_train_aug, y_train)
     return pipe.predict_proba(X_val_aug)
