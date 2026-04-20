@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> None:
     status_parser.add_argument("--limit", type=int, default=10, help="Max runs to show")
 
     submit_parser = sub.add_parser(
-        "submit", help="Refit a past run on full train and submit to Kaggle"
+        "submit", help="Build submission.csv from a run's test_predictions.npy and upload to Kaggle"
     )
     submit_parser.add_argument(
         "--run-id", default=None,

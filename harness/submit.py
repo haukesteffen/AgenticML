@@ -2,30 +2,24 @@
 
 Flow:
   1. Resolve source CV run (best improved on current branch, or explicit --run-id).
-  2. Download its solution.py artifact.
-  3. Spawn worker_submit to refit on full train and predict test.
+  2. Download its test_predictions.npy + predictions_manifest.json artifacts.
+  3. Map predictions to submission labels via the manifest's class_values.
   4. Upload submission.csv to Kaggle and poll for the public LB score.
-  5. Log everything (solution.py, submission.csv, test_predictions.npy, metrics)
-     to a dedicated `{prefix}_{slug}_submissions` mlflow experiment.
+  5. Log a slim record (submission.csv + lb metric + source_run_id tag) to
+     the `{prefix}_{slug}_submissions` mlflow experiment.
 """
 from __future__ import annotations
 
-import os
-import signal
-import subprocess
-import sys
+import json
 import tempfile
 from pathlib import Path
 
 import mlflow
+import numpy as np
+import pandas as pd
 
 from harness import git_utils, lock, mlflow_utils
 from harness.config import HarnessConfig
-
-EXIT_INVALID_OUTPUT = 2
-EXIT_REFIT_TIMEOUT = 3
-GRACE_SECONDS = 5
-SETUP_BUFFER_SECONDS = 120
 
 
 def submit(
@@ -36,11 +30,10 @@ def submit(
 ) -> None:
     cfg = HarnessConfig.load(config_path)
     project_root = cfg.project_root
-    config_abs = str(Path(config_path).resolve())
 
     lock.acquire(project_root)
     try:
-        _submit_inner(cfg, project_root, config_abs, run_id, message, branch)
+        _submit_inner(cfg, project_root, run_id, message, branch)
     finally:
         lock.release(project_root)
 
@@ -48,7 +41,6 @@ def submit(
 def _submit_inner(
     cfg: HarnessConfig,
     project_root: Path,
-    config_abs: str,
     run_id: str | None,
     message: str | None,
     branch_override: str | None,
@@ -76,8 +68,9 @@ def _submit_inner(
     experiment_kind = source_tags.get("experiment_kind", "model")
     if experiment_kind != "model":
         raise RuntimeError(
-            "Submission for ensemble runs is not implemented yet. "
-            "Materialize base-model test predictions first, then submit the blended result."
+            "Submission for ensemble runs lands in the next rollout. "
+            "Base-model runs now materialize test_predictions.npy at CV time; "
+            "ensemble runs will follow."
         )
 
     source_branch = source_tags.get("branch", branch)
@@ -96,11 +89,18 @@ def _submit_inner(
         tmpdir = Path(tmpdir_str)
         artifact_dir = tmpdir / "source_artifacts"
         artifact_dir.mkdir()
-        downloaded = client.download_artifacts(run_id, "solution.py", str(artifact_dir))
-        solution_path = Path(downloaded)
 
-        out_dir = tmpdir / "out"
-        out_dir.mkdir()
+        test_preds_path = Path(
+            client.download_artifacts(run_id, "test_predictions.npy", str(artifact_dir))
+        )
+        manifest_path = Path(
+            client.download_artifacts(run_id, "predictions_manifest.json", str(artifact_dir))
+        )
+        test_preds = np.load(str(test_preds_path))
+        manifest = json.loads(manifest_path.read_text())
+
+        submission_csv = tmpdir / "submission.csv"
+        _write_submission(cfg, project_root, test_preds, manifest, submission_csv)
 
         parent = mlflow_utils.start_parent_run(
             submissions_experiment,
@@ -116,13 +116,11 @@ def _submit_inner(
         parent_run_id = parent.info.run_id
 
         try:
-            _run_submission(
+            _upload_and_log(
                 cfg=cfg,
-                project_root=project_root,
-                config_abs=config_abs,
-                solution_path=solution_path,
-                out_dir=out_dir,
+                client=client,
                 parent_run_id=parent_run_id,
+                submission_csv=submission_csv,
                 source_branch=source_branch,
                 source_sha=source_sha,
                 hypothesis=hypothesis,
@@ -135,13 +133,45 @@ def _submit_inner(
             raise
 
 
-def _run_submission(
+def _write_submission(
     cfg: HarnessConfig,
     project_root: Path,
-    config_abs: str,
-    solution_path: Path,
-    out_dir: Path,
+    test_preds: np.ndarray,
+    manifest: dict,
+    out_path: Path,
+) -> None:
+    test_df = pd.read_csv(project_root / cfg.dataset.test_path)
+    sample_submission = pd.read_csv(project_root / "data" / "sample_submission.csv", nrows=0)
+
+    test_ids = test_df[cfg.dataset.id_column]
+    problem_type = manifest["problem_type"]
+    class_values = manifest.get("class_values")
+
+    if problem_type == "multiclass_classification":
+        label_indices = np.argmax(test_preds, axis=1)
+        labels = np.array(class_values)[label_indices]
+    elif problem_type == "binary_classification":
+        if test_preds.ndim == 2:
+            label_indices = np.argmax(test_preds, axis=1)
+        else:
+            label_indices = (test_preds >= 0.5).astype(int)
+        labels = np.array(class_values)[label_indices]
+    else:
+        labels = test_preds
+
+    submission_cols = list(sample_submission.columns)
+    submission = pd.DataFrame({
+        submission_cols[0]: test_ids.values,
+        submission_cols[1]: labels,
+    })
+    submission.to_csv(out_path, index=False)
+
+
+def _upload_and_log(
+    cfg: HarnessConfig,
+    client: mlflow.tracking.MlflowClient,
     parent_run_id: str,
+    submission_csv: Path,
     source_branch: str,
     source_sha: str,
     hypothesis: str,
@@ -149,33 +179,7 @@ def _run_submission(
     cv_std: float | None,
     message: str | None,
 ) -> None:
-    client = mlflow.tracking.MlflowClient()
-
-    print("Refitting on full train and predicting test...")
-    refit_timeout = cfg.budget.fold_seconds * cfg.cv.n_splits + SETUP_BUFFER_SECONDS
-    code, stderr = _spawn_worker(
-        "harness.worker_submit",
-        config_abs,
-        timeout=refit_timeout,
-        extra_env={
-            "HARNESS_SOLUTION_PATH": str(solution_path),
-            "HARNESS_OUT_DIR": str(out_dir),
-        },
-    )
-    if code != 0:
-        print(f"Refit failed (exit={code}).")
-        if stderr:
-            print(stderr)
-        mlflow_utils.log_traceback_artifact(stderr, "refit_traceback.txt")
-        mlflow_utils.end_parent_run("refit_failed")
-        return
-
-    submission_csv = out_dir / "submission.csv"
-    predictions_npy = out_dir / "test_predictions.npy"
-
-    client.log_artifact(parent_run_id, str(solution_path))
     client.log_artifact(parent_run_id, str(submission_csv))
-    client.log_artifact(parent_run_id, str(predictions_npy))
     if cv_mean is not None:
         client.log_metric(parent_run_id, "cv_mean_score", cv_mean)
     if cv_std is not None:
@@ -231,31 +235,3 @@ def _default_message(
 
 def _fmt(x: float | None) -> str:
     return f"{x:.6f}" if isinstance(x, float) else "-"
-
-
-def _spawn_worker(
-    module: str,
-    config_path: str,
-    timeout: int,
-    extra_env: dict[str, str] | None = None,
-) -> tuple[int, str]:
-    env = {**os.environ, **(extra_env or {})}
-    proc = subprocess.Popen(
-        [sys.executable, "-m", module, "--config", config_path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=env,
-        start_new_session=True,
-    )
-    try:
-        _, stderr = proc.communicate(timeout=timeout)
-        return proc.returncode, stderr.decode(errors="replace")
-    except subprocess.TimeoutExpired:
-        pgid = os.getpgid(proc.pid)
-        os.killpg(pgid, signal.SIGTERM)
-        try:
-            proc.wait(timeout=GRACE_SECONDS)
-        except subprocess.TimeoutExpired:
-            os.killpg(pgid, signal.SIGKILL)
-            proc.wait()
-        return -1, "Killed: wall-clock timeout exceeded"

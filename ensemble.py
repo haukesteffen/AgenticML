@@ -2,9 +2,10 @@
 AgenticML ensemble module.
 
 This file is what you edit for OOF-backed ensemble experiments. The harness
-resolves source runs from MLflow, downloads each source run's ``oof.npy``
-artifact, and builds a meta-feature table for you. Your ``fit_predict``
-function sees only those meta-features, not the raw competition features.
+resolves source runs from MLflow, downloads each source run's
+``oof_predictions.npy`` artifact, and builds a meta-feature table for you.
+Your ``fit_predict`` function sees only those meta-features, not the raw
+competition features.
 
 Contract
 --------

@@ -37,13 +37,13 @@ Drop your competition's `train.csv` into `data/` and update `config.yaml` with t
 
 ## MLflow
 
-Each `exp/<name>` branch gets its own MLflow experiment (`{prefix}_{branch}`). Parent runs track the attempt-level summary (hypothesis, mean score, status, experiment kind). Nested child runs contain per-fold autologged hyperparameters. Full CV runs also log `oof.npy`; ensemble runs additionally log `sources.json` describing their source lineage.
+Each `exp/<name>` branch gets its own MLflow experiment (`{prefix}_{branch}`). Parent runs track the attempt-level summary (hypothesis, mean score, status, experiment kind). Nested child runs contain per-fold autologged hyperparameters. Base-model CV runs log `oof_predictions.npy`, `test_predictions.npy`, and `predictions_manifest.json` — the full-train refit materializes test predictions at CV time so submissions are a no-refit artifact download. Ensemble runs log `oof_predictions.npy` + `sources.json` describing their source lineage.
 
 ## Ensembling
 
-`ensemble.py` defines a `SOURCES` list that selects logged runs by branch or explicit MLflow run id. The harness downloads each source run's `oof.npy`, validates compatibility, and passes the resulting meta-feature table into `fit_predict`. That makes simple blends, hill-climbing, and stackers all fit the same branch + harness + MLflow workflow.
+`ensemble.py` defines a `SOURCES` list that selects logged runs by branch or explicit MLflow run id. The harness downloads each source run's `oof_predictions.npy`, validates compatibility, and passes the resulting meta-feature table into `fit_predict`. That makes simple blends, hill-climbing, and stackers all fit the same branch + harness + MLflow workflow.
 
-`harness submit` still supports only base-model runs today. Ensemble submission needs a later materialization step that refits the chosen source runs on full train and blends their test predictions.
+`harness submit` currently supports only base-model runs. Ensemble submission lands in a follow-up rollout that extends the ensemble CV worker to materialize its own `test_predictions.npy`, after which the same one-path submit flow applies.
 
 ## Agent instructions
 

@@ -77,36 +77,44 @@ def parse_source_specs(raw_sources: Any) -> list[SourceSpec]:
     return specs
 
 
-def build_oof_manifest(
+def build_predictions_manifest(
     cfg: HarnessConfig,
     train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
     n_classes: int,
-    prediction_shape: tuple[int, ...],
+    oof_shape: tuple[int, ...],
+    test_shape: tuple[int, ...],
     *,
     classes: Any = None,
 ) -> dict[str, object]:
-    columns = [cfg.dataset.target]
+    train_columns = [cfg.dataset.target]
     if cfg.dataset.id_column in train_df.columns:
-        columns.insert(0, cfg.dataset.id_column)
+        train_columns.insert(0, cfg.dataset.id_column)
+    train_hashed = pd.util.hash_pandas_object(train_df[train_columns], index=False).values
+    dataset_signature = hashlib.sha256(train_hashed.tobytes()).hexdigest()
 
-    hashed = pd.util.hash_pandas_object(train_df[columns], index=False).values
-    dataset_signature = hashlib.sha256(hashed.tobytes()).hexdigest()
+    test_hashed = pd.util.hash_pandas_object(test_df[[cfg.dataset.id_column]], index=False).values
+    test_dataset_signature = hashlib.sha256(test_hashed.tobytes()).hexdigest()
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "problem_type": cfg.dataset.problem_type,
         "train_path": cfg.dataset.train_path,
+        "test_path": cfg.dataset.test_path,
         "target": cfg.dataset.target,
         "id_column": cfg.dataset.id_column,
         "n_rows": len(train_df),
+        "n_test_rows": len(test_df),
         "n_classes": n_classes,
-        "prediction_shape": [int(dim) for dim in prediction_shape],
+        "oof_shape": [int(dim) for dim in oof_shape],
+        "test_shape": [int(dim) for dim in test_shape],
         "cv": {
             "n_splits": cfg.cv.n_splits,
             "shuffle": cfg.cv.shuffle,
             "seed": cfg.cv.seed,
         },
         "dataset_signature": dataset_signature,
+        "test_dataset_signature": test_dataset_signature,
         "class_values": None if classes is None else [str(value) for value in classes],
     }
 
@@ -126,6 +134,7 @@ def log_json_artifact(
 def build_meta_frame(
     cfg: HarnessConfig,
     train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
     n_classes: int,
     raw_sources: Any,
     *,
@@ -136,11 +145,13 @@ def build_meta_frame(
         raise ValueError("SOURCES must contain at least one source.")
 
     resolved = resolve_sources(cfg, specs)
-    current_manifest = build_oof_manifest(
+    current_manifest = build_predictions_manifest(
         cfg,
         train_df,
+        test_df,
         n_classes,
         _expected_prediction_shape(len(train_df), n_classes, cfg.dataset.problem_type),
+        _expected_prediction_shape(len(test_df), n_classes, cfg.dataset.problem_type),
         classes=classes,
     )
 
@@ -154,7 +165,7 @@ def build_meta_frame(
             source_dir = tmpdir / source.alias
             source_dir.mkdir(parents=True, exist_ok=True)
 
-            oof_path = Path(client.download_artifacts(source.run_id, "oof.npy", str(source_dir)))
+            oof_path = Path(client.download_artifacts(source.run_id, "oof_predictions.npy", str(source_dir)))
             preds = np.load(str(oof_path))
             preds = _normalize_source_predictions(
                 source.alias,
@@ -304,7 +315,7 @@ def _load_optional_manifest(
 ) -> dict[str, object] | None:
     try:
         manifest_path = Path(
-            client.download_artifacts(run_id, "oof_manifest.json", str(out_dir))
+            client.download_artifacts(run_id, "predictions_manifest.json", str(out_dir))
         )
     except Exception:
         return None
@@ -320,11 +331,14 @@ def _validate_manifest(
     checks = (
         "problem_type",
         "train_path",
+        "test_path",
         "target",
         "id_column",
         "n_rows",
+        "n_test_rows",
         "n_classes",
         "dataset_signature",
+        "test_dataset_signature",
         "class_values",
     )
     for key in checks:

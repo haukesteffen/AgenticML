@@ -213,7 +213,8 @@ def _run_with_parent(
         print("Skipping smoke test for ensemble experiment. Running full CV...")
 
     # --- full phase ---
-    full_timeout = cfg.budget.fold_seconds * cfg.cv.n_splits + SETUP_BUFFER_SECONDS
+    # +1 fold-equivalent covers the full-train refit that produces test_predictions.npy.
+    full_timeout = cfg.budget.fold_seconds * (cfg.cv.n_splits + 1) + SETUP_BUFFER_SECONDS
     full_code, full_stderr = _spawn_worker(
         spec.full_worker,
         config_abs,

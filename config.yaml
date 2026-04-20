@@ -1,5 +1,6 @@
 dataset:
   train_path: data/train.csv
+  test_path: data/test.csv
   target: Irrigation_Need
   id_column: id
   problem_type: multiclass_classification   # | binary_classification | regression

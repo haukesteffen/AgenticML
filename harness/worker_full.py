@@ -26,7 +26,7 @@ import pandas as pd
 
 from harness.config import HarnessConfig
 from harness.cv import build_cv
-from harness.ensemble_utils import build_oof_manifest, log_json_artifact
+from harness.ensemble_utils import build_predictions_manifest, log_json_artifact
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
@@ -49,9 +49,11 @@ def main() -> int:
 
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
+    test_df = pd.read_csv(cfg.project_root / cfg.dataset.test_path)
     X = train_df.drop(columns=[cfg.dataset.target])
     if cfg.dataset.id_column in X.columns:
         X = X.drop(columns=[cfg.dataset.id_column])
+    X_test = test_df.drop(columns=[cfg.dataset.id_column])
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -115,19 +117,30 @@ def main() -> int:
     client.log_metric(parent_run_id, "mean_score", mean_score)
     client.log_metric(parent_run_id, "std_score", std_score)
 
+    test_preds = solution.fit_predict(X, y, X_test)
+    test_preds = np.asarray(test_preds)
+    validate_predictions(test_preds, len(X_test), n_classes, cfg.dataset.problem_type)
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        oof_path = Path(tmpdir) / "oof.npy"
+        tmpdir_path = Path(tmpdir)
+        oof_path = tmpdir_path / "oof_predictions.npy"
         np.save(str(oof_path), oof)
         client.log_artifact(parent_run_id, str(oof_path))
 
-    manifest = build_oof_manifest(
+        test_path = tmpdir_path / "test_predictions.npy"
+        np.save(str(test_path), test_preds)
+        client.log_artifact(parent_run_id, str(test_path))
+
+    manifest = build_predictions_manifest(
         cfg,
         train_df,
+        test_df,
         n_classes,
         oof.shape,
+        test_preds.shape,
         classes=classes,
     )
-    log_json_artifact(client, parent_run_id, "oof_manifest.json", manifest)
+    log_json_artifact(client, parent_run_id, "predictions_manifest.json", manifest)
 
     return 0
 

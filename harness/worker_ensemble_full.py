@@ -15,7 +15,7 @@ import pandas as pd
 
 from harness.config import HarnessConfig
 from harness.cv import build_cv
-from harness.ensemble_utils import build_meta_frame, build_oof_manifest, log_json_artifact
+from harness.ensemble_utils import build_meta_frame, log_json_artifact
 from harness.metric import get_metric
 from harness.mlflow_utils import ensure_experiment, setup_autolog
 from harness.worker_smoke import InvalidOutput, validate_predictions
@@ -38,6 +38,7 @@ def main() -> int:
 
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
+    test_df = pd.read_csv(cfg.project_root / cfg.dataset.test_path)
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -58,6 +59,7 @@ def main() -> int:
     meta_df, lineage = build_meta_frame(
         cfg,
         train_df,
+        test_df,
         n_classes,
         getattr(ensemble, "SOURCES", None),
         classes=classes,
@@ -112,18 +114,9 @@ def main() -> int:
     client.log_metric(parent_run_id, "std_score", std_score)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        oof_path = Path(tmpdir) / "oof.npy"
+        oof_path = Path(tmpdir) / "oof_predictions.npy"
         np.save(str(oof_path), oof)
         client.log_artifact(parent_run_id, str(oof_path))
-
-    manifest = build_oof_manifest(
-        cfg,
-        train_df,
-        n_classes,
-        oof.shape,
-        classes=classes,
-    )
-    log_json_artifact(client, parent_run_id, "oof_manifest.json", manifest)
 
     return 0
 

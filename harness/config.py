@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 @dataclass(frozen=True)
 class DatasetConfig:
     train_path: str
+    test_path: str
     target: str
     id_column: str
     problem_type: str  # regression | binary_classification | multiclass_classification
