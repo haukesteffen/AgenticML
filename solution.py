@@ -49,8 +49,9 @@ Rules
 import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
+from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "ensembling: seed-bagging with 3 random seeds averaged for variance reduction"
+HYPOTHESIS = "preprocessing: stratified ES split so rare High class is proportionally represented in early stopping"
 
 
 def fit_predict(
@@ -63,12 +64,13 @@ def fit_predict(
     categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
     feature_cols = numeric_cols + categorical_cols
 
-    # Hold out 10% of train as early-stopping signal
-    n_val = max(1, int(0.1 * len(X_train)))
-    X_es = X_train.iloc[-n_val:][feature_cols]
-    y_es = y_train[-n_val:]
-    X_tr = X_train.iloc[:-n_val][feature_cols]
-    y_tr = y_train[:-n_val]
+    idx_tr, idx_es = train_test_split(
+        np.arange(len(X_train)), test_size=0.1, random_state=42, stratify=y_train
+    )
+    X_es = X_train.iloc[idx_es][feature_cols]
+    y_es = y_train[idx_es]
+    X_tr = X_train.iloc[idx_tr][feature_cols]
+    y_tr = y_train[idx_tr]
 
     probas = []
     for seed in [0, 1, 2]:
