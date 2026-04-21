@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 30 to 32 binary-searching timing limit"
+HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 32 to 33 binary-searching timing limit"
 
 
 def fit_predict(
@@ -89,7 +89,7 @@ def fit_predict(
         ("num", "passthrough", numeric_cols + dist_cols),
         (
             "num_spline",
-            SplineTransformer(n_knots=32, degree=3, include_bias=False),
+            SplineTransformer(n_knots=33, degree=3, include_bias=False),
             numeric_cols,
         ),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
