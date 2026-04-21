@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: rsm=0.8 column subsampling per split for regularization"
+HYPOTHESIS = "hyperparameters: bootstrap_type=Bernoulli subsample=0.8 for row subsampling"
 
 
 def fit_predict(
@@ -77,6 +77,8 @@ def fit_predict(
         grow_policy="Lossguide",
         max_leaves=63,
         rsm=0.8,
+        bootstrap_type="Bernoulli",
+        subsample=0.8,
     )
     model.fit(
         X_tr, y_tr,
