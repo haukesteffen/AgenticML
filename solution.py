@@ -53,7 +53,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, SplineTransformer, StandardScaler
 
-HYPOTHESIS = "hyperparameters: increase SplineTransformer n_knots from 32 to 33 binary-searching timing limit"
+HYPOTHESIS = "feature engineering: ablate centroid distances, keep only numeric passthrough + splines + OHE"
 
 
 def fit_predict(
@@ -86,7 +86,7 @@ def fit_predict(
         X_val_aug[col] = val_dist[:, i]
 
     preprocessor = ColumnTransformer([
-        ("num", "passthrough", numeric_cols + dist_cols),
+        ("num", "passthrough", numeric_cols),
         (
             "num_spline",
             SplineTransformer(n_knots=33, degree=3, include_bias=False),
