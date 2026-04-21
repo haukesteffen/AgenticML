@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: add early stopping (rounds=50) to cut iteration count"
+HYPOTHESIS = "hyperparameters: auto_class_weights=Balanced to address High-class imbalance (~3.3%)"
 
 
 def fit_predict(
@@ -70,7 +70,11 @@ def fit_predict(
     X_tr = X_train.iloc[:-n_val][feature_cols]
     y_tr = y_train[:-n_val]
 
-    model = CatBoostClassifier(thread_count=-1, early_stopping_rounds=50)
+    model = CatBoostClassifier(
+        thread_count=-1,
+        early_stopping_rounds=50,
+        auto_class_weights="Balanced",
+    )
     model.fit(
         X_tr, y_tr,
         cat_features=categorical_cols,
