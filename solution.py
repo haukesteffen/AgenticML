@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "model: use a basic CatBoost classifier on numeric and categorical columns"
+HYPOTHESIS = "hyperparameters: add early stopping (rounds=50) to cut iteration count"
 
 
 def fit_predict(
@@ -63,6 +63,18 @@ def fit_predict(
     categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
     feature_cols = numeric_cols + categorical_cols
 
-    model = CatBoostClassifier(thread_count=-1)
-    model.fit(X_train[feature_cols], y_train, cat_features=categorical_cols)
+    # Hold out 10% of train as early-stopping signal
+    n_val = max(1, int(0.1 * len(X_train)))
+    X_es = X_train.iloc[-n_val:][feature_cols]
+    y_es = y_train[-n_val:]
+    X_tr = X_train.iloc[:-n_val][feature_cols]
+    y_tr = y_train[:-n_val]
+
+    model = CatBoostClassifier(thread_count=-1, early_stopping_rounds=50)
+    model.fit(
+        X_tr, y_tr,
+        cat_features=categorical_cols,
+        eval_set=(X_es, y_es),
+        verbose=False,
+    )
     return model.predict_proba(X_val[feature_cols])
