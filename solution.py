@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: auto_class_weights=Balanced to address High-class imbalance (~3.3%)"
+HYPOTHESIS = "hyperparameters: grow_policy=Lossguide with max_leaves=63 for leaf-wise growth"
 
 
 def fit_predict(
@@ -74,6 +74,8 @@ def fit_predict(
         thread_count=-1,
         early_stopping_rounds=50,
         auto_class_weights="Balanced",
+        grow_policy="Lossguide",
+        max_leaves=63,
     )
     model.fit(
         X_tr, y_tr,
