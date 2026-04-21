@@ -48,12 +48,9 @@ Rules
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from catboost import CatBoostClassifier
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "model: use a basic CatBoost classifier on numeric and categorical columns"
 
 
 def fit_predict(
@@ -63,16 +60,9 @@ def fit_predict(
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
+    feature_cols = numeric_cols + categorical_cols
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
-
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    model = CatBoostClassifier(thread_count=-1)
+    model.fit(X_train[feature_cols], y_train, cat_features=categorical_cols)
+    return model.predict_proba(X_val[feature_cols])
