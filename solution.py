@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: bootstrap_type=Bernoulli subsample=0.8 for row subsampling"
+HYPOTHESIS = "hyperparameters: min_data_in_leaf=20 to stabilize small Lossguide leaves"
 
 
 def fit_predict(
@@ -79,6 +79,7 @@ def fit_predict(
         rsm=0.8,
         bootstrap_type="Bernoulli",
         subsample=0.8,
+        min_data_in_leaf=20,
     )
     model.fit(
         X_tr, y_tr,
