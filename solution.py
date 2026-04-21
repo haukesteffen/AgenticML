@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: grow_policy=Lossguide with max_leaves=63 for leaf-wise growth"
+HYPOTHESIS = "hyperparameters: rsm=0.8 column subsampling per split for regularization"
 
 
 def fit_predict(
@@ -76,6 +76,7 @@ def fit_predict(
         auto_class_weights="Balanced",
         grow_policy="Lossguide",
         max_leaves=63,
+        rsm=0.8,
     )
     model.fit(
         X_tr, y_tr,
