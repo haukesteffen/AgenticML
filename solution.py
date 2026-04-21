@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
-HYPOTHESIS = "hyperparameters: min_data_in_leaf=20 to stabilize small Lossguide leaves"
+HYPOTHESIS = "ensembling: seed-bagging with 3 random seeds averaged for variance reduction"
 
 
 def fit_predict(
@@ -70,21 +70,25 @@ def fit_predict(
     X_tr = X_train.iloc[:-n_val][feature_cols]
     y_tr = y_train[:-n_val]
 
-    model = CatBoostClassifier(
-        thread_count=-1,
-        early_stopping_rounds=50,
-        auto_class_weights="Balanced",
-        grow_policy="Lossguide",
-        max_leaves=63,
-        rsm=0.8,
-        bootstrap_type="Bernoulli",
-        subsample=0.8,
-        min_data_in_leaf=20,
-    )
-    model.fit(
-        X_tr, y_tr,
-        cat_features=categorical_cols,
-        eval_set=(X_es, y_es),
-        verbose=False,
-    )
-    return model.predict_proba(X_val[feature_cols])
+    probas = []
+    for seed in [0, 1, 2]:
+        model = CatBoostClassifier(
+            thread_count=-1,
+            early_stopping_rounds=50,
+            auto_class_weights="Balanced",
+            grow_policy="Lossguide",
+            max_leaves=63,
+            rsm=0.8,
+            bootstrap_type="Bernoulli",
+            subsample=0.8,
+            min_data_in_leaf=20,
+            random_seed=seed,
+        )
+        model.fit(
+            X_tr, y_tr,
+            cat_features=categorical_cols,
+            eval_set=(X_es, y_es),
+            verbose=False,
+        )
+        probas.append(model.predict_proba(X_val[feature_cols]))
+    return np.mean(probas, axis=0)
