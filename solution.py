@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "ensembling: include sub_model predictions on X_val in final average (3-way blend: sub+seed0+seed1) at zero extra compute"
+HYPOTHESIS = "ensembling: swap main-model seeds from [0,1] to [3,7] to explore different diversity axis"
 
 
 def fit_predict(
@@ -95,7 +95,7 @@ def fit_predict(
 
     # Include sub_model val predictions + seed-bag 2 full-data LGBMs → 3-way average
     probas = [sub_model.predict_proba(X_val)]
-    for seed in [0, 1]:
+    for seed in [3, 7]:
         m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
         probas.append(m.predict_proba(X_val))
