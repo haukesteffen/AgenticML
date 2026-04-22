@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "hyperparameter: n_estimators=500, learning_rate=0.05 for slower convergence on 630k-row dataset"
+HYPOTHESIS = "ensembling: seed-bag 2 LGBMs (seeds 0,1) and average probabilities before applying tuned High multiplier"
 
 
 def fit_predict(
@@ -93,10 +93,13 @@ def fit_predict(
             best_ba = ba
             best_mult = mult
 
-    # Refit on full training fold with the tuned multiplier
-    model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05)
-    model.fit(X_train, y_train, categorical_feature=categorical_cols)
-    proba_val = model.predict_proba(X_val)
+    # Seed-bag 2 LGBMs on the full training fold, average probabilities
+    probas = []
+    for seed in [0, 1]:
+        m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed)
+        m.fit(X_train, y_train, categorical_feature=categorical_cols)
+        probas.append(m.predict_proba(X_val))
+    proba_val = np.mean(probas, axis=0)
     proba_val[:, 0] *= best_mult
     proba_val /= proba_val.sum(axis=1, keepdims=True)
     return proba_val
