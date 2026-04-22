@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "ensembling: main model seeds [5,11] instead of [3,7] for different diversity"
+HYPOTHESIS = "ensembling: main model seeds [5,13] (keep winning 5, try 13 vs 11)"
 
 
 def fit_predict(
@@ -99,7 +99,7 @@ def fit_predict(
 
     # Weighted blend: sub_model (90% data) gets 0.2, full-data seeds get 0.4 each
     main_probas = []
-    for seed in [5, 11]:
+    for seed in [5, 13]:
         m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8, max_bin=8191, min_data_per_group=50)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
         main_probas.append(m.predict_proba(X_val))
