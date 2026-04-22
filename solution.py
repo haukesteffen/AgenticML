@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "hyperparameter: min_data_per_group=50 (half default 100) for finer categorical leaf splits"
+HYPOTHESIS = "ensembling: weighted blend 0.2/0.4/0.4 (downweight sub_model trained on 90% data)"
 
 
 def fit_predict(
@@ -97,13 +97,13 @@ def fit_predict(
             best_ba = ba
             best_mult = mult
 
-    # Include sub_model val predictions + seed-bag 2 full-data LGBMs → 3-way average
-    probas = [sub_model.predict_proba(X_val)]
+    # Weighted blend: sub_model (90% data) gets 0.2, full-data seeds get 0.4 each
+    main_probas = []
     for seed in [3, 7]:
         m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8, max_bin=8191, min_data_per_group=50)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
-        probas.append(m.predict_proba(X_val))
-    proba_val = np.mean(probas, axis=0)
+        main_probas.append(m.predict_proba(X_val))
+    proba_val = 0.2 * sub_model.predict_proba(X_val) + 0.4 * main_probas[0] + 0.4 * main_probas[1]
     proba_val[:, 0] *= best_mult
     proba_val /= proba_val.sum(axis=1, keepdims=True)
     return proba_val
