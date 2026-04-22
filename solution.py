@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "hyperparameter: feature_fraction=0.8 for stochastic regularization via random feature subsets per tree"
+HYPOTHESIS = "BA-first decoding: sub_model trained on 90% (vs 80%) holdout for more accurate multiplier estimation"
 
 
 def fit_predict(
@@ -71,7 +71,7 @@ def fit_predict(
     n = len(X_train)
     rng = np.random.RandomState(42)
     perm = rng.permutation(n)
-    split = int(0.8 * n)
+    split = int(0.9 * n)
     tr_idx, ho_idx = perm[:split], perm[split:]
 
     sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, feature_fraction=0.8)
