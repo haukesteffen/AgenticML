@@ -48,12 +48,9 @@ Rules
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from lightgbm import LGBMClassifier
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "baseline: vanilla LGBMClassifier with default hyperparameters"
 
 
 def fit_predict(
@@ -62,17 +59,13 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    X_train = X_train.copy()
+    X_val = X_val.copy()
+    for col in categorical_cols:
+        X_train[col] = X_train[col].astype("category")
+        X_val[col] = X_val[col].astype("category")
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
-
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    model = LGBMClassifier()
+    model.fit(X_train, y_train, categorical_feature=categorical_cols)
+    return model.predict_proba(X_val)
