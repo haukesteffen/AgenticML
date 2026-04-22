@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "feature engineering: irrigation_density = Previous_Irrigation_mm / (Field_Area_hectare + 0.01) normalization"
+HYPOTHESIS = "hyperparameter: min_data_per_group=50 (half default 100) for finer categorical leaf splits"
 
 
 def fit_predict(
@@ -78,7 +78,7 @@ def fit_predict(
     split = int(0.9 * n)
     tr_idx, ho_idx = perm[:split], perm[split:]
 
-    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, feature_fraction=0.8, max_bin=8191)
+    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, feature_fraction=0.8, max_bin=8191, min_data_per_group=50)
     sub_model.fit(
         X_train.iloc[tr_idx], y_train[tr_idx],
         categorical_feature=categorical_cols,
@@ -100,7 +100,7 @@ def fit_predict(
     # Include sub_model val predictions + seed-bag 2 full-data LGBMs → 3-way average
     probas = [sub_model.predict_proba(X_val)]
     for seed in [3, 7]:
-        m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8, max_bin=8191)
+        m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8, max_bin=8191, min_data_per_group=50)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
         probas.append(m.predict_proba(X_val))
     proba_val = np.mean(probas, axis=0)
