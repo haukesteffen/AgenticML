@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
 
-HYPOTHESIS = "baseline: vanilla LGBMClassifier with default hyperparameters"
+HYPOTHESIS = "hyperparameter: class_weight='balanced' to address High-class imbalance (3.3%) for balanced_accuracy"
 
 
 def fit_predict(
@@ -66,6 +66,6 @@ def fit_predict(
         X_train[col] = X_train[col].astype("category")
         X_val[col] = X_val[col].astype("category")
 
-    model = LGBMClassifier()
+    model = LGBMClassifier(class_weight="balanced")
     model.fit(X_train, y_train, categorical_feature=categorical_cols)
     return model.predict_proba(X_val)
