@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "hyperparameter: max_bin=8191 pushing histogram resolution further past the 512 win"
+HYPOTHESIS = "feature engineering: irrigation_density = Previous_Irrigation_mm / (Field_Area_hectare + 0.01) normalization"
 
 
 def fit_predict(
@@ -63,6 +63,10 @@ def fit_predict(
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
     X_train = X_train.copy()
     X_val = X_val.copy()
+
+    for df in (X_train, X_val):
+        df["irrigation_density"] = df["Previous_Irrigation_mm"] / (df["Field_Area_hectare"] + 0.01)
+
     for col in categorical_cols:
         X_train[col] = X_train[col].astype("category")
         X_val[col] = X_val[col].astype("category")
