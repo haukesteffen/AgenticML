@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "ensembling: seed-bag 2 LGBMs (seeds 0,1) and average probabilities before applying tuned High multiplier"
+HYPOTHESIS = "hyperparameter: feature_fraction=0.8 for stochastic regularization via random feature subsets per tree"
 
 
 def fit_predict(
@@ -74,7 +74,7 @@ def fit_predict(
     split = int(0.8 * n)
     tr_idx, ho_idx = perm[:split], perm[split:]
 
-    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05)
+    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, feature_fraction=0.8)
     sub_model.fit(
         X_train.iloc[tr_idx], y_train[tr_idx],
         categorical_feature=categorical_cols,
@@ -96,7 +96,7 @@ def fit_predict(
     # Seed-bag 2 LGBMs on the full training fold, average probabilities
     probas = []
     for seed in [0, 1]:
-        m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed)
+        m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
         probas.append(m.predict_proba(X_val))
     proba_val = np.mean(probas, axis=0)
