@@ -51,7 +51,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "feature engineering: Season x Crop_Growth_Stage interaction as new categorical feature"
+HYPOTHESIS = "feature engineering: Crop_Type x Crop_Growth_Stage interaction categorical to complement Season_Stage"
 
 
 def fit_predict(
@@ -68,6 +68,8 @@ def fit_predict(
     X_val = X_val.copy()
     X_train["Season_Stage"] = X_train["Season"].astype(str) + "_" + X_train["Crop_Growth_Stage"].astype(str)
     X_val["Season_Stage"] = X_val["Season"].astype(str) + "_" + X_val["Crop_Growth_Stage"].astype(str)
+    X_train["Crop_Stage"] = X_train["Crop_Type"].astype(str) + "_" + X_train["Crop_Growth_Stage"].astype(str)
+    X_val["Crop_Stage"] = X_val["Crop_Type"].astype(str) + "_" + X_val["Crop_Growth_Stage"].astype(str)
     categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
     feature_cols = numeric_cols + categorical_cols
 
