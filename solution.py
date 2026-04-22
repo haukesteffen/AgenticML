@@ -49,8 +49,9 @@ Rules
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMClassifier
+from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "hyperparameter: class_weight='balanced' to address High-class imbalance (3.3%) for balanced_accuracy"
+HYPOTHESIS = "BA-first decoding: tune High-class probability multiplier on fold-internal holdout to push more true-High rows across the boundary"
 
 
 def fit_predict(
@@ -66,6 +67,36 @@ def fit_predict(
         X_train[col] = X_train[col].astype("category")
         X_val[col] = X_val[col].astype("category")
 
-    model = LGBMClassifier(class_weight="balanced")
+    # Fold-internal holdout for multiplier tuning (80/20 split)
+    n = len(X_train)
+    rng = np.random.RandomState(42)
+    perm = rng.permutation(n)
+    split = int(0.8 * n)
+    tr_idx, ho_idx = perm[:split], perm[split:]
+
+    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1)
+    sub_model.fit(
+        X_train.iloc[tr_idx], y_train[tr_idx],
+        categorical_feature=categorical_cols,
+    )
+    proba_ho = sub_model.predict_proba(X_train.iloc[ho_idx])
+    y_ho = y_train[ho_idx]
+
+    # Class 0 = High under pd.factorize sort=True (alphabetical: High < Low < Medium).
+    # Sweep multiplier on High column to maximise balanced accuracy on holdout.
+    best_mult, best_ba = 1.0, -1.0
+    for mult in np.linspace(1.0, 6.0, 51):
+        p = proba_ho.copy()
+        p[:, 0] *= mult
+        ba = balanced_accuracy_score(y_ho, p.argmax(axis=1))
+        if ba > best_ba:
+            best_ba = ba
+            best_mult = mult
+
+    # Refit on full training fold with the tuned multiplier
+    model = LGBMClassifier(class_weight="balanced", verbose=-1)
     model.fit(X_train, y_train, categorical_feature=categorical_cols)
-    return model.predict_proba(X_val)
+    proba_val = model.predict_proba(X_val)
+    proba_val[:, 0] *= best_mult
+    proba_val /= proba_val.sum(axis=1, keepdims=True)
+    return proba_val
