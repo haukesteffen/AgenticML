@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "BA-first decoding: sub_model trained on 90% (vs 80%) holdout for more accurate multiplier estimation"
+HYPOTHESIS = "ensembling: include sub_model predictions on X_val in final average (3-way blend: sub+seed0+seed1) at zero extra compute"
 
 
 def fit_predict(
@@ -93,8 +93,8 @@ def fit_predict(
             best_ba = ba
             best_mult = mult
 
-    # Seed-bag 2 LGBMs on the full training fold, average probabilities
-    probas = []
+    # Include sub_model val predictions + seed-bag 2 full-data LGBMs → 3-way average
+    probas = [sub_model.predict_proba(X_val)]
     for seed in [0, 1]:
         m = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05, random_state=seed, feature_fraction=0.8)
         m.fit(X_train, y_train, categorical_feature=categorical_cols)
