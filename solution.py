@@ -51,7 +51,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import balanced_accuracy_score
 
-HYPOTHESIS = "BA-first decoding: tune High-class probability multiplier on fold-internal holdout to push more true-High rows across the boundary"
+HYPOTHESIS = "hyperparameter: n_estimators=500, learning_rate=0.05 for slower convergence on 630k-row dataset"
 
 
 def fit_predict(
@@ -74,7 +74,7 @@ def fit_predict(
     split = int(0.8 * n)
     tr_idx, ho_idx = perm[:split], perm[split:]
 
-    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1)
+    sub_model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05)
     sub_model.fit(
         X_train.iloc[tr_idx], y_train[tr_idx],
         categorical_feature=categorical_cols,
@@ -94,7 +94,7 @@ def fit_predict(
             best_mult = mult
 
     # Refit on full training fold with the tuned multiplier
-    model = LGBMClassifier(class_weight="balanced", verbose=-1)
+    model = LGBMClassifier(class_weight="balanced", verbose=-1, n_estimators=500, learning_rate=0.05)
     model.fit(X_train, y_train, categorical_feature=categorical_cols)
     proba_val = model.predict_proba(X_val)
     proba_val[:, 0] *= best_mult
