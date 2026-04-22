@@ -51,7 +51,7 @@ import pandas as pd
 from catboost import CatBoostClassifier
 from sklearn.model_selection import train_test_split
 
-HYPOTHESIS = "feature engineering: Crop_Type x Crop_Growth_Stage interaction categorical to complement Season_Stage"
+HYPOTHESIS = "feature engineering: mean(Rainfall_mm) by Region as numeric feature for regional water context"
 
 
 def fit_predict(
@@ -70,12 +70,21 @@ def fit_predict(
     X_val["Season_Stage"] = X_val["Season"].astype(str) + "_" + X_val["Crop_Growth_Stage"].astype(str)
     X_train["Crop_Stage"] = X_train["Crop_Type"].astype(str) + "_" + X_train["Crop_Growth_Stage"].astype(str)
     X_val["Crop_Stage"] = X_val["Crop_Type"].astype(str) + "_" + X_val["Crop_Growth_Stage"].astype(str)
-    categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
-    feature_cols = numeric_cols + categorical_cols
 
     idx_tr, idx_es = train_test_split(
         np.arange(len(X_train)), test_size=0.1, random_state=42, stratify=y_train
     )
+
+    # Compute group mean from training rows only to avoid leakage
+    region_rainfall_mean = X_train.iloc[idx_tr].groupby("Region")["Rainfall_mm"].mean()
+    global_mean = X_train.iloc[idx_tr]["Rainfall_mm"].mean()
+    X_train["Region_Rainfall_mean"] = X_train["Region"].map(region_rainfall_mean).fillna(global_mean)
+    X_val["Region_Rainfall_mean"] = X_val["Region"].map(region_rainfall_mean).fillna(global_mean)
+
+    categorical_cols = X_train.select_dtypes(include=["object", "category"]).columns.tolist()
+    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    feature_cols = numeric_cols + categorical_cols
+
     X_es = X_train.iloc[idx_es][feature_cols]
     y_es = y_train[idx_es]
     X_tr = X_train.iloc[idx_tr][feature_cols]
