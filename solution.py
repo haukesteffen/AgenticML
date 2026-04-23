@@ -53,7 +53,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "3-seed MLP ensemble to reduce seed variance, averaging predict_proba across seeds"
+HYPOTHESIS = "High-class oversampling 6x instead of 4x — more upweighting of rare class"
 
 
 def fit_predict(
@@ -67,8 +67,8 @@ def fit_predict(
 
     # Oversample the rare "High" class (index 0 after pd.factorize sort=True: High < Low < Medium)
     high_mask = y_train == 0
-    X_aug = pd.concat([X_train] + [X_train[high_mask]] * 3, ignore_index=True)
-    y_aug = np.concatenate([y_train] + [y_train[high_mask]] * 3)
+    X_aug = pd.concat([X_train] + [X_train[high_mask]] * 5, ignore_index=True)
+    y_aug = np.concatenate([y_train] + [y_train[high_mask]] * 5)
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
