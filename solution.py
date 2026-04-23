@@ -51,9 +51,9 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, TargetEncoder
 
-HYPOTHESIS = "High-class oversampling 6x instead of 4x — more upweighting of rare class"
+HYPOTHESIS = "TargetEncoder for categoricals instead of one-hot — reduces input dim, injects class-aware signal"
 
 
 def fit_predict(
@@ -72,7 +72,7 @@ def fit_predict(
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
+        ("cat", TargetEncoder(random_state=42), categorical_cols),
     ])
 
     probas = []
