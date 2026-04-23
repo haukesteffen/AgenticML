@@ -53,7 +53,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "baseline: vanilla MLPClassifier with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "oversample High class 4x via row duplication to improve balanced_accuracy on rare class"
 
 
 def fit_predict(
@@ -65,6 +65,11 @@ def fit_predict(
     numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
 
+    # Oversample the rare "High" class (index 0 after pd.factorize sort=True: High < Low < Medium)
+    high_mask = y_train == 0
+    X_aug = pd.concat([X_train] + [X_train[high_mask]] * 3, ignore_index=True)
+    y_aug = np.concatenate([y_train] + [y_train[high_mask]] * 3)
+
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
@@ -74,5 +79,5 @@ def fit_predict(
         ("preprocess", preprocessor),
         ("model", MLPClassifier(max_iter=200, random_state=42)),
     ])
-    pipe.fit(X_train, y_train)
+    pipe.fit(X_aug, y_aug)
     return pipe.predict_proba(X_val)
