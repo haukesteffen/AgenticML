@@ -7,9 +7,9 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensembling: margin-aware rare-class rescue (promote High when within 0.05 of winner)"
+HYPOTHESIS = "hyperparams: n_estimators=250 with current improved config"
 
-_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=150)
+_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=250)
 
 
 def fit_predict(
