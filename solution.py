@@ -53,7 +53,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "oversample High class 4x via row duplication to improve balanced_accuracy on rare class"
+HYPOTHESIS = "3-seed MLP ensemble to reduce seed variance, averaging predict_proba across seeds"
 
 
 def fit_predict(
@@ -75,9 +75,12 @@ def fit_predict(
         ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
     ])
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", MLPClassifier(max_iter=200, random_state=42)),
-    ])
-    pipe.fit(X_aug, y_aug)
-    return pipe.predict_proba(X_val)
+    probas = []
+    for seed in [42, 7, 123]:
+        pipe = Pipeline([
+            ("preprocess", preprocessor),
+            ("model", MLPClassifier(max_iter=200, random_state=seed)),
+        ])
+        pipe.fit(X_aug, y_aug)
+        probas.append(pipe.predict_proba(X_val))
+    return np.mean(probas, axis=0)
