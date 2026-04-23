@@ -9,7 +9,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensemble: 1-seed 3-fold inner OOF + 4-depth final blend [4,5,6,7] x 2 seeds"
+HYPOTHESIS = "hyperparams: High multiplier 4.5x with [4,5,6,7] blend (old config had 4.5x regress)"
 
 _BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=250)
 
@@ -18,7 +18,7 @@ def _make_weights(y):
     sw = compute_sample_weight("balanced", y)
     classes, counts = np.unique(y, return_counts=True)
     rarest = classes[np.argmin(counts)]
-    sw[y == rarest] *= 4.0
+    sw[y == rarest] *= 4.5
     return sw, rarest
 
 
