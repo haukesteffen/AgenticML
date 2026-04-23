@@ -7,9 +7,9 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensembling: hyperparameter family average (shallow max_depth=4 + current max_depth=6, 2 seeds each)"
+HYPOTHESIS = "hyperparams: n_estimators=150 (50% more trees from default 100)"
 
-_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=2048)
+_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=2048, n_estimators=150)
 
 
 def fit_predict(
