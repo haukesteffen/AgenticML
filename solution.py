@@ -9,7 +9,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensemble: 1-seed 3-fold inner OOF + 3-depth final blend [4,5,6] x 2 seeds"
+HYPOTHESIS = "ensemble: 1-seed 3-fold inner OOF + 4-depth final blend [4,5,6,7] x 2 seeds"
 
 _BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=250)
 
@@ -63,10 +63,10 @@ def fit_predict(
         if ba > best_ba:
             best_ba, best_offset = ba, offset
 
-    # Train final models with 3-depth blend for structural diversity
+    # Train final models with 4-depth blend for structural diversity
     preds = []
     last_model = None
-    for depth in [4, 5, 6]:
+    for depth in [4, 5, 6, 7]:
         for seed in [0, 1]:
             model = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=seed)
             model.fit(X_train_enc, y_train, sample_weight=sample_weight)
