@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparams: max_bin=512 for finer histogram resolution on continuous features"
+HYPOTHESIS = "hyperparams: max_bin=1024 (pushing finer histogram resolution further)"
 
 
 def fit_predict(
@@ -23,7 +23,7 @@ def fit_predict(
 
     preds = []
     for seed in [0, 1, 2]:
-        model = XGBClassifier(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=512, random_state=seed)
+        model = XGBClassifier(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=1024, random_state=seed)
         model.fit(X_train, y_train, sample_weight=sample_weight)
         preds.append(model.predict_proba(X_val))
     return np.mean(preds, axis=0)
