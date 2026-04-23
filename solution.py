@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparams: balanced weights + 2.0x multiplier on rarest class (High)"
+HYPOTHESIS = "hyperparams: balanced weights + 3.0x multiplier on rarest class (High)"
 
 _BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=150)
 
@@ -24,7 +24,7 @@ def fit_predict(
     sample_weight = compute_sample_weight("balanced", y_train)
     classes, counts = np.unique(y_train, return_counts=True)
     rarest = classes[np.argmin(counts)]
-    sample_weight[y_train == rarest] *= 2.0
+    sample_weight[y_train == rarest] *= 3.0
 
     preds = []
     for depth in [4, 6]:
