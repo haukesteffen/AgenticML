@@ -7,9 +7,9 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparams: n_estimators=150 (50% more trees from default 100)"
+HYPOTHESIS = "hyperparams: reg_lambda=2 (between 1 and 3 to fine-tune regularization)"
 
-_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=2048, n_estimators=150)
+_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=150)
 
 
 def fit_predict(
