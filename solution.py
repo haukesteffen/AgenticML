@@ -9,7 +9,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensembling: logit offset OOF with 2 seeds in inner loop for better OOF quality"
+HYPOTHESIS = "ensemble: 1-seed 3-fold inner OOF + 3-depth final blend [4,5,6] x 2 seeds"
 
 _BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=250)
 
@@ -41,17 +41,17 @@ def fit_predict(
 
     sample_weight, rarest = _make_weights(y_train)
 
-    # 3-fold internal OOF to tune rare-class logit offset
+    # 3-fold internal OOF (1 seed) to tune rare-class logit offset
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
-    oof_proba = np.zeros((len(y_train), 3))
+    n_cls = len(np.unique(y_train))
+    oof_proba = np.zeros((len(y_train), n_cls))
     last_model_inner = None
     for tr, va in skf.split(X_train_enc, y_train):
         sw_tr = _make_weights(y_train[tr])[0]
         for depth in [4, 6]:
-            for seed in [0, 1]:
-                m = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=seed)
-                m.fit(X_train_enc.iloc[tr], y_train[tr], sample_weight=sw_tr)
-                oof_proba[va] += m.predict_proba(X_train_enc.iloc[va]) / 4
+            m = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=0)
+            m.fit(X_train_enc.iloc[tr], y_train[tr], sample_weight=sw_tr)
+            oof_proba[va] += m.predict_proba(X_train_enc.iloc[va]) / 2
         last_model_inner = m
 
     rare_idx = np.where(last_model_inner.classes_ == rarest)[0][0]
@@ -63,10 +63,10 @@ def fit_predict(
         if ba > best_ba:
             best_ba, best_offset = ba, offset
 
-    # Train final models on all training data
+    # Train final models with 3-depth blend for structural diversity
     preds = []
     last_model = None
-    for depth in [4, 6]:
+    for depth in [4, 5, 6]:
         for seed in [0, 1]:
             model = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=seed)
             model.fit(X_train_enc, y_train, sample_weight=sample_weight)
