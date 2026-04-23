@@ -9,7 +9,7 @@ from sklearn.metrics import balanced_accuracy_score
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "ensembling: per-class logit offset on rarest class, tuned via 3-fold internal OOF"
+HYPOTHESIS = "ensembling: logit offset OOF with 2 seeds in inner loop for better OOF quality"
 
 _BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=2, max_bin=2048, n_estimators=250)
 
@@ -48,9 +48,10 @@ def fit_predict(
     for tr, va in skf.split(X_train_enc, y_train):
         sw_tr = _make_weights(y_train[tr])[0]
         for depth in [4, 6]:
-            m = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=0)
-            m.fit(X_train_enc.iloc[tr], y_train[tr], sample_weight=sw_tr)
-            oof_proba[va] += m.predict_proba(X_train_enc.iloc[va]) / 2
+            for seed in [0, 1]:
+                m = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=seed)
+                m.fit(X_train_enc.iloc[tr], y_train[tr], sample_weight=sw_tr)
+                oof_proba[va] += m.predict_proba(X_train_enc.iloc[va]) / 4
         last_model_inner = m
 
     rare_idx = np.where(last_model_inner.classes_ == rarest)[0][0]
