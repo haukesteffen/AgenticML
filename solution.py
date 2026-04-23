@@ -7,7 +7,9 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
-HYPOTHESIS = "hyperparams: max_bin=2048 (pushing finer histogram resolution further)"
+HYPOTHESIS = "ensembling: hyperparameter family average (shallow max_depth=4 + current max_depth=6, 2 seeds each)"
+
+_BASE_PARAMS = dict(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=2048)
 
 
 def fit_predict(
@@ -22,8 +24,9 @@ def fit_predict(
     sample_weight = compute_sample_weight("balanced", y_train)
 
     preds = []
-    for seed in [0, 1, 2]:
-        model = XGBClassifier(tree_method="hist", n_jobs=-1, subsample=0.8, colsample_bytree=0.8, reg_lambda=3, max_bin=2048, random_state=seed)
-        model.fit(X_train, y_train, sample_weight=sample_weight)
-        preds.append(model.predict_proba(X_val))
+    for depth in [4, 6]:
+        for seed in [0, 1]:
+            model = XGBClassifier(**_BASE_PARAMS, max_depth=depth, random_state=seed)
+            model.fit(X_train, y_train, sample_weight=sample_weight)
+            preds.append(model.predict_proba(X_val))
     return np.mean(preds, axis=0)
