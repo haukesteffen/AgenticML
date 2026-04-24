@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "LR stacker C=0.01 (stronger regularization) with 5 sources + log-odds"
+HYPOTHESIS = "LR stacker + per-class gamma power scaling tuned on holdout for BA"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -71,11 +71,38 @@ def fit_predict(
     X_val: pd.DataFrame,
 ) -> np.ndarray:
     from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import balanced_accuracy_score
+    from sklearn.model_selection import train_test_split
+    from scipy.optimize import minimize
 
     def log_odds(X):
         p = np.clip(X.to_numpy(), 1e-7, 1 - 1e-7)
         return np.log(p / (1 - p))
 
+    def apply_gamma(proba, gamma):
+        p = np.clip(proba, 1e-10, 1)
+        scaled = p ** gamma
+        return scaled / scaled.sum(axis=1, keepdims=True)
+
+    X_tr, X_ho, y_tr, y_ho = train_test_split(
+        X_train, y_train, test_size=0.25, random_state=42, stratify=y_train
+    )
+
+    clf_ho = LogisticRegression(C=0.01, class_weight="balanced", max_iter=1000, solver="lbfgs")
+    clf_ho.fit(log_odds(X_tr), y_tr)
+    proba_ho = clf_ho.predict_proba(log_odds(X_ho))
+
+    n_classes = proba_ho.shape[1]
+
+    def neg_ba(gamma):
+        adj = apply_gamma(proba_ho, gamma)
+        return -balanced_accuracy_score(y_ho, np.argmax(adj, axis=1))
+
+    res = minimize(neg_ba, np.ones(n_classes), method="Nelder-Mead",
+                   options={"maxiter": 500, "xatol": 1e-5, "fatol": 1e-7})
+    gamma_opt = np.clip(res.x, 0.1, 10.0)
+
     clf = LogisticRegression(C=0.01, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf.fit(log_odds(X_train), y_train)
-    return clf.predict_proba(log_odds(X_val))
+    proba_val = clf.predict_proba(log_odds(X_val))
+    return apply_gamma(proba_val, gamma_opt)
