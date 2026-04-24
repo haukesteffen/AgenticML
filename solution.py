@@ -48,12 +48,14 @@ Rules
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from sklearn.compose import ColumnTransformer
+from sklearn.metrics import balanced_accuracy_score
 from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, TargetEncoder
 
-HYPOTHESIS = "alpha=1e-6 — push less L2 further to see if trend continues"
+HYPOTHESIS = "in-sample log-prob offset tuning per class to directly maximize balanced_accuracy"
 
 
 def fit_predict(
@@ -75,12 +77,30 @@ def fit_predict(
         ("cat", TargetEncoder(random_state=42), categorical_cols),
     ])
 
-    probas = []
+    fitted_pipes, val_probas = [], []
     for seed in [42, 7, 123, 17, 99]:
         pipe = Pipeline([
             ("preprocess", preprocessor),
             ("model", MLPClassifier(max_iter=200, alpha=1e-6, random_state=seed)),
         ])
         pipe.fit(X_aug, y_aug)
-        probas.append(pipe.predict_proba(X_val))
-    return np.mean(probas, axis=0)
+        fitted_pipes.append(pipe)
+        val_probas.append(pipe.predict_proba(X_val))
+
+    # Find per-class log-prob offsets that maximize balanced_accuracy on training fold
+    # Using original X_train (not augmented) so in-sample eval is on natural distribution
+    train_probas = np.mean([p.predict_proba(X_train) for p in fitted_pipes], axis=0)
+
+    def neg_bal_acc(offsets):
+        # offsets: 2 free params; fix class 2 (Medium) to 0 for identifiability
+        w = np.exp([offsets[0], offsets[1], 0.0])
+        return -balanced_accuracy_score(y_train, np.argmax(train_probas * w, axis=1))
+
+    result = minimize(neg_bal_acc, [0.0, 0.0], method="Nelder-Mead",
+                      options={"maxiter": 300, "xatol": 1e-5})
+    opt_w = np.exp([result.x[0], result.x[1], 0.0])
+
+    raw_val = np.mean(val_probas, axis=0)
+    adj_val = raw_val * opt_w
+    adj_val /= adj_val.sum(axis=1, keepdims=True)
+    return adj_val
