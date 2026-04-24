@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "add linear2 source to LR stacker (5 sources: lgbm3+xgb2+catboost2+mlp3+linear2)"
+HYPOTHESIS = "LR stacker C=0.1 (stronger regularization) with 5 sources + log-odds"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -76,6 +76,6 @@ def fit_predict(
         p = np.clip(X.to_numpy(), 1e-7, 1 - 1e-7)
         return np.log(p / (1 - p))
 
-    clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs")
+    clf = LogisticRegression(C=0.1, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf.fit(log_odds(X_train), y_train)
     return clf.predict_proba(log_odds(X_val))
