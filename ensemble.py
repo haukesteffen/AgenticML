@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "LogisticRegression stacker on meta-features (C=1, balanced class_weight)"
+HYPOTHESIS = "LR stacker with log-odds transform of input probabilities (C=1, balanced)"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -71,6 +71,10 @@ def fit_predict(
 ) -> np.ndarray:
     from sklearn.linear_model import LogisticRegression
 
+    def log_odds(X):
+        p = np.clip(X.to_numpy(), 1e-7, 1 - 1e-7)
+        return np.log(p / (1 - p))
+
     clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs")
-    clf.fit(X_train.to_numpy(), y_train)
-    return clf.predict_proba(X_val.to_numpy())
+    clf.fit(log_odds(X_train), y_train)
+    return clf.predict_proba(log_odds(X_val))
