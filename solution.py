@@ -53,7 +53,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, TargetEncoder
 
-HYPOTHESIS = "expand to 5-seed ensemble — TargetEncoder makes each MLP fast enough to fit 5 seeds in budget"
+HYPOTHESIS = "alpha=1e-5 — less L2 regularization; compact TargetEncoder inputs may benefit from lighter penalty"
 
 
 def fit_predict(
@@ -79,7 +79,7 @@ def fit_predict(
     for seed in [42, 7, 123, 17, 99]:
         pipe = Pipeline([
             ("preprocess", preprocessor),
-            ("model", MLPClassifier(max_iter=200, random_state=seed)),
+            ("model", MLPClassifier(max_iter=200, alpha=1e-5, random_state=seed)),
         ])
         pipe.fit(X_aug, y_aug)
         probas.append(pipe.predict_proba(X_val))
