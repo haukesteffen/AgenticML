@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average of lgbm3, xgb2, catboost2, mlp3 best runs"
+HYPOTHESIS = "LogisticRegression stacker on meta-features (C=1, balanced class_weight)"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -69,19 +69,8 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Average the selected source predictions with equal weights."""
-    if not SOURCES:
-        raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
+    from sklearn.linear_model import LogisticRegression
 
-    aliases: list[str] = []
-    for column in X_val.columns:
-        alias = column.split("__", 1)[0]
-        if alias not in aliases:
-            aliases.append(alias)
-
-    blocks = [X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
-              for alias in aliases]
-    preds = np.mean(blocks, axis=0)
-    if preds.ndim == 2 and preds.shape[1] == 1:
-        return preds[:, 0]
-    return preds
+    clf = LogisticRegression(C=1.0, class_weight="balanced", max_iter=1000, solver="lbfgs")
+    clf.fit(X_train.to_numpy(), y_train)
+    return clf.predict_proba(X_val.to_numpy())
