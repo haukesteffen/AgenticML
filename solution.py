@@ -55,7 +55,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, TargetEncoder
 
-HYPOTHESIS = "in-sample log-prob offset tuning per class to directly maximize balanced_accuracy"
+HYPOTHESIS = "TargetEncoder smooth=0.0 — no shrinkage; 630k rows gives stable per-category estimates"
 
 
 def fit_predict(
@@ -74,7 +74,7 @@ def fit_predict(
 
     preprocessor = ColumnTransformer([
         ("num", StandardScaler(), numeric_cols),
-        ("cat", TargetEncoder(random_state=42), categorical_cols),
+        ("cat", TargetEncoder(smooth=0.0, random_state=42), categorical_cols),
     ])
 
     fitted_pipes, val_probas = [], []
