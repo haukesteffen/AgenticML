@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "LR stacker + per-class gamma power scaling tuned on holdout for BA"
+HYPOTHESIS = "LR stacker C=0.05 + log-odds + gamma on holdout (5 sources)"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -88,7 +88,7 @@ def fit_predict(
         X_train, y_train, test_size=0.25, random_state=42, stratify=y_train
     )
 
-    clf_ho = LogisticRegression(C=0.01, class_weight="balanced", max_iter=1000, solver="lbfgs")
+    clf_ho = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf_ho.fit(log_odds(X_tr), y_tr)
     proba_ho = clf_ho.predict_proba(log_odds(X_ho))
 
@@ -102,7 +102,7 @@ def fit_predict(
                    options={"maxiter": 500, "xatol": 1e-5, "fatol": 1e-7})
     gamma_opt = np.clip(res.x, 0.1, 10.0)
 
-    clf = LogisticRegression(C=0.01, class_weight="balanced", max_iter=1000, solver="lbfgs")
+    clf = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf.fit(log_odds(X_train), y_train)
     proba_val = clf.predict_proba(log_odds(X_val))
     return apply_gamma(proba_val, gamma_opt)
