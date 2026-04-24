@@ -54,13 +54,14 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "LR stacker with log-odds transform of input probabilities (C=1, balanced)"
+HYPOTHESIS = "add linear2 source to LR stacker (5 sources: lgbm3+xgb2+catboost2+mlp3+linear2)"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
     {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
+    {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
 ]
 
 
