@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "ensembling: optimize global non-negative source weights for balanced accuracy"
+HYPOTHESIS = "sources: drop knn from global weighted blend"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -64,7 +64,6 @@ SOURCES = [
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
     {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
     {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
-    {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
 ]
 
 
