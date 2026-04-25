@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "hyperparameters: L2 logistic stacker C=4.0"
+HYPOTHESIS = "preprocessing: log-odds features for C=4 L2 logistic stacker"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -82,5 +82,9 @@ def fit_predict(
         max_iter=1000,
         solver="lbfgs",
     )
-    model.fit(X_train, y_train)
-    return model.predict_proba(X_val)
+    def log_odds(frame: pd.DataFrame) -> np.ndarray:
+        proba = np.clip(frame.to_numpy(dtype=float), 1e-7, 1.0 - 1e-7)
+        return np.log(proba / (1.0 - proba))
+
+    model.fit(log_odds(X_train), y_train)
+    return model.predict_proba(log_odds(X_val))
