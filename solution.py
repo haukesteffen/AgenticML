@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN k=100 distance, target-encode, full balance + Gaussian noise SMOTE"
+HYPOTHESIS = "cuML KNN multi-k ensemble (k=50,100,200), target-encode, full balance+noise"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -62,7 +62,6 @@ def fit_predict(X_train, y_train, X_val):
     X_tr_np = scaler.fit_transform(X_tr_raw).astype(np.float32)
     X_vl_np = scaler.transform(X_vl_raw).astype(np.float32)
 
-    # Balance via SMOTE-like oversampling (random neighbor interpolation + noise)
     counts = np.bincount(y_enc, minlength=n_classes)
     max_count = counts.max()
     rng = np.random.default_rng(42)
@@ -72,7 +71,6 @@ def fit_predict(X_train, y_train, X_val):
             idx = np.where(y_enc == cls)[0]
             n_extra = max_count - counts[cls]
             chosen = rng.choice(idx, size=n_extra, replace=True)
-            # Add small Gaussian noise (std=0.05 in scaled space)
             noise = rng.normal(0, 0.05, size=(n_extra, X_tr_np.shape[1])).astype(np.float32)
             extra_X.append(X_tr_np[chosen] + noise)
             extra_y.append(np.full(n_extra, cls, dtype=np.int32))
@@ -80,9 +78,13 @@ def fit_predict(X_train, y_train, X_val):
         X_tr_np = np.vstack([X_tr_np] + extra_X)
         y_enc = np.concatenate([y_enc] + extra_y)
 
-    knn = KNeighborsClassifier(
-        n_neighbors=100, metric="euclidean", weights="distance", output_type="numpy"
-    )
-    knn.fit(X_tr_np, y_enc)
-    probs = knn.predict_proba(X_vl_np)
+    all_probs = []
+    for k in [50, 100, 200]:
+        knn = KNeighborsClassifier(
+            n_neighbors=k, metric="euclidean", weights="distance", output_type="numpy"
+        )
+        knn.fit(X_tr_np, y_enc)
+        all_probs.append(knn.predict_proba(X_vl_np))
+
+    probs = np.mean(all_probs, axis=0)
     return np.array(probs, dtype=np.float64)
