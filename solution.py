@@ -14,7 +14,7 @@ from sklearn.preprocessing import SplineTransformer
 from sklearn.decomposition import PCA
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + multi-PCA ensemble (16,32) + target-encode + balance+noise=0.01"
+HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + multi-PCA (8,16,32,64) + target-encode + balance+noise=0.01"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -49,14 +49,14 @@ def _target_encode(X_tr, y_enc, X_vl, n_classes, smoothing=30):
     return tr_enc, vl_enc
 
 
-def _run_knn(X_tr_np, y_enc, X_vl_np, ks=(50, 100, 200)):
+def _run_knn(X_tr, y, X_vl, ks=(50, 100, 200)):
     all_probs = []
     for k in ks:
         knn = KNeighborsClassifier(
             n_neighbors=k, metric="euclidean", weights="distance", output_type="numpy"
         )
-        knn.fit(X_tr_np, y_enc)
-        all_probs.append(knn.predict_proba(X_vl_np))
+        knn.fit(X_tr, y)
+        all_probs.append(knn.predict_proba(X_vl))
     return np.mean(all_probs, axis=0)
 
 
@@ -80,18 +80,16 @@ def fit_predict(X_train, y_train, X_val):
     X_tr_scaled = scaler.fit_transform(X_tr_raw).astype(np.float32)
     X_vl_scaled = scaler.transform(X_vl_raw).astype(np.float32)
 
-    # Balance with small noise
     counts = np.bincount(y_enc, minlength=n_classes)
     max_count = counts.max()
     rng = np.random.default_rng(42)
 
     all_probs = []
-    for n_components in [16, 32]:
+    for n_components in [8, 16, 32, 64]:
         pca = PCA(n_components=n_components, random_state=42)
         X_tr_pca = pca.fit_transform(X_tr_scaled).astype(np.float32)
         X_vl_pca = pca.transform(X_vl_scaled).astype(np.float32)
 
-        y_enc_bal = y_enc.copy()
         extra_X, extra_y = [], []
         for cls in range(n_classes):
             if counts[cls] < max_count:
@@ -103,11 +101,11 @@ def fit_predict(X_train, y_train, X_val):
                 extra_y.append(np.full(n_extra, cls, dtype=np.int32))
         if extra_X:
             X_tr_bal = np.vstack([X_tr_pca] + extra_X)
-            y_enc_bal = np.concatenate([y_enc_bal] + extra_y)
+            y_bal = np.concatenate([y_enc] + extra_y)
         else:
-            X_tr_bal = X_tr_pca
+            X_tr_bal, y_bal = X_tr_pca, y_enc
 
-        all_probs.append(_run_knn(X_tr_bal, y_enc_bal, X_vl_pca))
+        all_probs.append(_run_knn(X_tr_bal, y_bal, X_vl_pca))
 
     probs = np.mean(all_probs, axis=0)
     return np.array(probs, dtype=np.float64)
