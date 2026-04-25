@@ -17,62 +17,127 @@ Define exactly two things at module scope:
 
   fit_predict(X_train, y_train, X_val) -> np.ndarray
       Train your model on (X_train, y_train) and return predictions on X_val.
-
-Inputs
-------
-  X_train : pandas.DataFrame  — training fold features (id column already dropped)
-  y_train : numpy.ndarray     — training fold targets (integer-encoded for
-                                 classification via pd.factorize, float for regression)
-  X_val   : pandas.DataFrame  — validation fold features (id column already dropped)
-
-Return shape
-------------
-  2D array of shape (len(X_val), n_classes),
-  per-class probabilities with columns in
-  ascending class-index order (matching pd.factorize
-  with sort=True)
-
-Rules
------
-- Do not import or call mlflow — the harness owns logging.
-- Do not touch anything under ``harness/``, ``data/``, ``.env``, or ``config.yaml``.
-- Do not read test data — you only have what arrives via function arguments.
-- Feature engineering must be done inside ``fit_predict`` so it runs on the
-  training fold only (no cross-fold leakage).
-- HYPOTHESIS must be a plain string literal at module scope.
-- Change exactly one axis per attempt: feature engineering, preprocessing,
-  hyperparameters, or ensembling. HYPOTHESIS must be a single clause naming
-  that one axis. Bundling changes hides which one moved the score and kills
-  the next iteration's ability to ablate or revert. This rule is strict.
+      Must return an np.ndarray of shape (len(X_val), n_classes) with
+      probabilities (rows sum to 1).
 """
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+import tabm
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "TabM default config (k=32, 3 blocks, d=512) with AdamW + early stopping"
 
 
-def fit_predict(
-    X_train: pd.DataFrame,
-    y_train: np.ndarray,
-    X_val: pd.DataFrame,
-) -> np.ndarray:
-    """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+def fit_predict(X_train, y_train, X_val):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    # Encode labels
+    le = LabelEncoder()
+    y_enc = le.fit_transform(y_train)
+    n_classes = len(le.classes_)
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    # One-hot encode categoricals, fill NaN
+    X_tr = pd.get_dummies(X_train).fillna(0).astype(np.float32)
+    X_vl = pd.get_dummies(X_val).fillna(0).astype(np.float32)
+    X_vl = X_vl.reindex(columns=X_tr.columns, fill_value=0)
+
+    # Standardize
+    scaler = StandardScaler()
+    X_tr_np = scaler.fit_transform(X_tr.values)
+    X_vl_np = scaler.transform(X_vl.values)
+
+    n_features = X_tr_np.shape[1]
+
+    # Internal validation split for early stopping (10%)
+    X_fit, X_es, y_fit, y_es = train_test_split(
+        X_tr_np, y_enc, test_size=0.1, random_state=42, stratify=y_enc
+    )
+
+    def to_tensor(X, y=None):
+        Xt = torch.tensor(X, dtype=torch.float32, device=device)
+        if y is None:
+            return Xt
+        yt = torch.tensor(y, dtype=torch.long, device=device)
+        return Xt, yt
+
+    X_fit_t, y_fit_t = to_tensor(X_fit, y_fit)
+    X_es_t, y_es_t = to_tensor(X_es, y_es)
+    X_vl_t = to_tensor(X_vl_np)
+
+    # Class weights for imbalanced High class
+    class_counts = np.bincount(y_enc)
+    class_weights = torch.tensor(
+        len(y_enc) / (n_classes * class_counts), dtype=torch.float32, device=device
+    )
+
+    # Build model
+    model = tabm.TabM.make(
+        n_num_features=n_features,
+        d_out=n_classes,
+        # defaults: k=32, n_blocks=3, d_block=512, dropout=0.1
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100)
+
+    batch_size = 1024
+    dataset = TensorDataset(X_fit_t, y_fit_t)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+
+    best_val_loss = float("inf")
+    best_state = None
+    patience = 15
+    patience_counter = 0
+
+    for epoch in range(200):
+        model.train()
+        for xb, yb in loader:
+            optimizer.zero_grad()
+            # output: (batch_size, k, n_classes)
+            logits = model(x_num=xb)
+            # average ensemble predictions, then cross-entropy
+            log_probs = F.log_softmax(logits, dim=-1).mean(dim=1)
+            loss = F.nll_loss(log_probs, yb, weight=class_weights)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+        scheduler.step()
+
+        # Early stopping check
+        model.eval()
+        with torch.no_grad():
+            val_logits = model(x_num=X_es_t)
+            val_log_probs = F.log_softmax(val_logits, dim=-1).mean(dim=1)
+            val_loss = F.nll_loss(val_log_probs, y_es_t, weight=class_weights).item()
+
+        if val_loss < best_val_loss - 1e-5:
+            best_val_loss = val_loss
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                break
+
+    # Restore best weights
+    if best_state is not None:
+        model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+
+    # Predict
+    model.eval()
+    chunk = 4096
+    all_probs = []
+    with torch.no_grad():
+        for i in range(0, len(X_vl_t), chunk):
+            xb = X_vl_t[i : i + chunk]
+            logits = model(x_num=xb)  # (chunk, k, n_classes)
+            probs = F.softmax(logits, dim=-1).mean(dim=1)  # (chunk, n_classes)
+            all_probs.append(probs.cpu().numpy())
+
+    return np.vstack(all_probs)
