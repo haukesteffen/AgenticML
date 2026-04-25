@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "sources: drop knn from global weighted blend"
+HYPOTHESIS = "sources: drop tabicl from knn-free global weighted blend"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -62,7 +62,6 @@ SOURCES = [
     {"alias": "lightgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
     {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
-    {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
     {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
 ]
 
