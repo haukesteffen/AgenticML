@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average of best improved linear2 catboost2 lightgbm3 xgb2 mlp3 tabicl tabm knn"
+HYPOTHESIS = "ensembling: optimize global non-negative source weights for balanced accuracy"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -73,19 +73,49 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Average the selected source predictions with equal weights."""
+    """Blend sources with one global non-negative weight per source."""
+    from scipy.optimize import minimize
+    from sklearn.metrics import balanced_accuracy_score
+
     if not SOURCES:
         raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
 
     aliases: list[str] = []
-    for column in X_val.columns:
+    for column in X_train.columns:
         alias = column.split("__", 1)[0]
         if alias not in aliases:
             aliases.append(alias)
 
-    blocks = [X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
-              for alias in aliases]
-    preds = np.mean(blocks, axis=0)
+    train_blocks = np.stack([
+        X_train[[col for col in X_train.columns if col.startswith(f"{alias}__")]].to_numpy()
+        for alias in aliases
+    ], axis=0)
+    val_blocks = np.stack([
+        X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
+        for alias in aliases
+    ], axis=0)
+
+    def normalize(raw_weights: np.ndarray) -> np.ndarray:
+        weights = np.clip(raw_weights, 0.0, None)
+        total = weights.sum()
+        if total <= 0:
+            return np.full(len(aliases), 1.0 / len(aliases))
+        return weights / total
+
+    def objective(raw_weights: np.ndarray) -> float:
+        weights = normalize(raw_weights)
+        blended = np.tensordot(weights, train_blocks, axes=(0, 0))
+        return -balanced_accuracy_score(y_train, np.argmax(blended, axis=1))
+
+    initial = np.full(len(aliases), 1.0 / len(aliases))
+    result = minimize(
+        objective,
+        initial,
+        method="Nelder-Mead",
+        options={"maxiter": 120, "xatol": 1e-4, "fatol": 1e-6},
+    )
+    weights = normalize(result.x)
+    preds = np.tensordot(weights, val_blocks, axes=(0, 0))
     if preds.ndim == 2 and preds.shape[1] == 1:
         return preds[:, 0]
     return preds
