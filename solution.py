@@ -14,7 +14,7 @@ from sklearn.preprocessing import SplineTransformer
 from sklearn.decomposition import PCA
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + PCA(n=32) + target-encode + balance+noise=0.02"
+HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + PCA(n=16) + target-encode + balance+noise=0.01"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -69,7 +69,7 @@ def fit_predict(X_train, y_train, X_val):
     X_tr_scaled = scaler.fit_transform(X_tr_raw).astype(np.float32)
     X_vl_scaled = scaler.transform(X_vl_raw).astype(np.float32)
 
-    pca = PCA(n_components=32, random_state=42)
+    pca = PCA(n_components=16, random_state=42)
     X_tr_np = pca.fit_transform(X_tr_scaled).astype(np.float32)
     X_vl_np = pca.transform(X_vl_scaled).astype(np.float32)
 
@@ -82,7 +82,7 @@ def fit_predict(X_train, y_train, X_val):
             idx = np.where(y_enc == cls)[0]
             n_extra = max_count - counts[cls]
             chosen = rng.choice(idx, size=n_extra, replace=True)
-            noise = rng.normal(0, 0.02, size=(n_extra, X_tr_np.shape[1])).astype(np.float32)
+            noise = rng.normal(0, 0.01, size=(n_extra, X_tr_np.shape[1])).astype(np.float32)
             extra_X.append(X_tr_np[chosen] + noise)
             extra_y.append(np.full(n_extra, cls, dtype=np.int32))
     if extra_X:
