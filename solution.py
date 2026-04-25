@@ -10,9 +10,10 @@ Contract
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import SplineTransformer
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN multi-k ensemble (k=50,100,200), target-encode, full balance+noise"
+HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) on numerics + target-encode + balance+noise"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -54,9 +55,15 @@ def fit_predict(X_train, y_train, X_val):
 
     X_tr_num = X_train[_NUM_COLS].fillna(0).values.astype(np.float32)
     X_vl_num = X_val[_NUM_COLS].fillna(0).values.astype(np.float32)
+
+    # Spline-expand numeric features
+    spline = SplineTransformer(n_knots=10, degree=3, include_bias=False)
+    X_tr_spline = spline.fit_transform(X_tr_num).astype(np.float32)
+    X_vl_spline = spline.transform(X_vl_num).astype(np.float32)
+
     tr_cat, vl_cat = _target_encode(X_train, y_enc, X_val, n_classes)
-    X_tr_raw = np.hstack([X_tr_num, tr_cat])
-    X_vl_raw = np.hstack([X_vl_num, vl_cat])
+    X_tr_raw = np.hstack([X_tr_spline, tr_cat])
+    X_vl_raw = np.hstack([X_vl_spline, vl_cat])
 
     scaler = StandardScaler()
     X_tr_np = scaler.fit_transform(X_tr_raw).astype(np.float32)
