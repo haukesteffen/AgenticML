@@ -14,7 +14,7 @@ from sklearn.preprocessing import SplineTransformer
 from sklearn.decomposition import PCA
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + multi-PCA (8,16,32,64) + target-encode + balance+noise=0.01"
+HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + PCA(8,16,32,64) + 3-seed oversample ensemble"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -82,30 +82,31 @@ def fit_predict(X_train, y_train, X_val):
 
     counts = np.bincount(y_enc, minlength=n_classes)
     max_count = counts.max()
-    rng = np.random.default_rng(42)
 
     all_probs = []
-    for n_components in [8, 16, 32, 64]:
-        pca = PCA(n_components=n_components, random_state=42)
-        X_tr_pca = pca.fit_transform(X_tr_scaled).astype(np.float32)
-        X_vl_pca = pca.transform(X_vl_scaled).astype(np.float32)
+    for seed in [42, 123, 777]:
+        rng = np.random.default_rng(seed)
+        for n_components in [8, 16, 32, 64]:
+            pca = PCA(n_components=n_components, random_state=seed)
+            X_tr_pca = pca.fit_transform(X_tr_scaled).astype(np.float32)
+            X_vl_pca = pca.transform(X_vl_scaled).astype(np.float32)
 
-        extra_X, extra_y = [], []
-        for cls in range(n_classes):
-            if counts[cls] < max_count:
-                idx = np.where(y_enc == cls)[0]
-                n_extra = max_count - counts[cls]
-                chosen = rng.choice(idx, size=n_extra, replace=True)
-                noise = rng.normal(0, 0.01, size=(n_extra, n_components)).astype(np.float32)
-                extra_X.append(X_tr_pca[chosen] + noise)
-                extra_y.append(np.full(n_extra, cls, dtype=np.int32))
-        if extra_X:
-            X_tr_bal = np.vstack([X_tr_pca] + extra_X)
-            y_bal = np.concatenate([y_enc] + extra_y)
-        else:
-            X_tr_bal, y_bal = X_tr_pca, y_enc
+            extra_X, extra_y = [], []
+            for cls in range(n_classes):
+                if counts[cls] < max_count:
+                    idx = np.where(y_enc == cls)[0]
+                    n_extra = max_count - counts[cls]
+                    chosen = rng.choice(idx, size=n_extra, replace=True)
+                    noise = rng.normal(0, 0.01, size=(n_extra, n_components)).astype(np.float32)
+                    extra_X.append(X_tr_pca[chosen] + noise)
+                    extra_y.append(np.full(n_extra, cls, dtype=np.int32))
+            if extra_X:
+                X_tr_bal = np.vstack([X_tr_pca] + extra_X)
+                y_bal = np.concatenate([y_enc] + extra_y)
+            else:
+                X_tr_bal, y_bal = X_tr_pca, y_enc
 
-        all_probs.append(_run_knn(X_tr_bal, y_bal, X_vl_pca))
+            all_probs.append(_run_knn(X_tr_bal, y_bal, X_vl_pca))
 
     probs = np.mean(all_probs, axis=0)
     return np.array(probs, dtype=np.float64)
