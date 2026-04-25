@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "preprocessing: log-odds features for C=4 L2 logistic stacker"
+HYPOTHESIS = "regularization: ElasticNet l1_ratio=0.5 on log-odds features (saga solver)"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -78,9 +78,11 @@ def fit_predict(
 
     model = LogisticRegression(
         C=4.0,
+        penalty="elasticnet",
+        l1_ratio=0.5,
         class_weight="balanced",
-        max_iter=1000,
-        solver="lbfgs",
+        max_iter=2000,
+        solver="saga",
     )
     def log_odds(frame: pd.DataFrame) -> np.ndarray:
         proba = np.clip(frame.to_numpy(dtype=float), 1e-7, 1.0 - 1e-7)
