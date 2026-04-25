@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "hyperparameters: L2 logistic stacker C=2.0"
+HYPOTHESIS = "hyperparameters: L2 logistic stacker C=4.0"
 
 SOURCES = [
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
@@ -77,7 +77,7 @@ def fit_predict(
     from sklearn.linear_model import LogisticRegression
 
     model = LogisticRegression(
-        C=2.0,
+        C=4.0,
         class_weight="balanced",
         max_iter=1000,
         solver="lbfgs",
