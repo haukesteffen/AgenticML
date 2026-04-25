@@ -14,7 +14,7 @@ from sklearn.preprocessing import SplineTransformer
 from sklearn.decomposition import PCA
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + PCA(n=64) + target-encode + balance+noise=0.02"
+HYPOTHESIS = "cuML KNN multi-k (50,100,200) + spline(n_knots=10) + PCA(n=32) + target-encode + balance+noise=0.02"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -69,7 +69,7 @@ def fit_predict(X_train, y_train, X_val):
     X_tr_scaled = scaler.fit_transform(X_tr_raw).astype(np.float32)
     X_vl_scaled = scaler.transform(X_vl_raw).astype(np.float32)
 
-    pca = PCA(n_components=64, random_state=42)
+    pca = PCA(n_components=32, random_state=42)
     X_tr_np = pca.fit_transform(X_tr_scaled).astype(np.float32)
     X_vl_np = pca.transform(X_vl_scaled).astype(np.float32)
 
