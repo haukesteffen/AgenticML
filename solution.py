@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from cuml.neighbors import KNeighborsClassifier
 
-HYPOTHESIS = "cuML KNN k=30 distance, target-encode cats, oversample High 6x"
+HYPOTHESIS = "cuML KNN k=50 distance, target-encode, full balance, euclidean"
 
 _NUM_COLS = [
     "Soil_pH", "Soil_Moisture", "Organic_Carbon", "Electrical_Conductivity",
@@ -62,24 +62,24 @@ def fit_predict(X_train, y_train, X_val):
     X_tr_np = scaler.fit_transform(X_tr_raw).astype(np.float32)
     X_vl_np = scaler.transform(X_vl_raw).astype(np.float32)
 
-    # Oversample High class (assume it's minority)
+    # Upsample all minority classes to match majority count
     counts = np.bincount(y_enc, minlength=n_classes)
     max_count = counts.max()
-    oversample_indices = []
     rng = np.random.default_rng(42)
+    extra_X, extra_y = [], []
     for cls in range(n_classes):
-        idx = np.where(y_enc == cls)[0]
-        ratio = max_count // counts[cls]
-        if ratio > 1:
-            extra = rng.choice(idx, size=counts[cls] * (ratio - 1), replace=True)
-            oversample_indices.append(extra)
-    if oversample_indices:
-        extra_idx = np.concatenate(oversample_indices)
-        X_tr_np = np.vstack([X_tr_np, X_tr_np[extra_idx]])
-        y_enc = np.concatenate([y_enc, y_enc[extra_idx]])
+        if counts[cls] < max_count:
+            idx = np.where(y_enc == cls)[0]
+            n_extra = max_count - counts[cls]
+            chosen = rng.choice(idx, size=n_extra, replace=True)
+            extra_X.append(X_tr_np[chosen])
+            extra_y.append(np.full(n_extra, cls, dtype=np.int32))
+    if extra_X:
+        X_tr_np = np.vstack([X_tr_np] + extra_X)
+        y_enc = np.concatenate([y_enc] + extra_y)
 
     knn = KNeighborsClassifier(
-        n_neighbors=30, metric="euclidean", weights="distance", output_type="numpy"
+        n_neighbors=50, metric="euclidean", weights="distance", output_type="numpy"
     )
     knn.fit(X_tr_np, y_enc)
     probs = knn.predict_proba(X_vl_np)
