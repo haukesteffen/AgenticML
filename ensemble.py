@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "LR stacker C=0.05 + log-odds + gamma on holdout (5 sources)"
+HYPOTHESIS = "Bagged LR C=0.05 (20 bootstrap) + log-odds + gamma on holdout"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -73,6 +73,7 @@ def fit_predict(
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import balanced_accuracy_score
     from sklearn.model_selection import train_test_split
+    from sklearn.utils import resample
     from scipy.optimize import minimize
 
     def log_odds(X):
@@ -88,10 +89,10 @@ def fit_predict(
         X_train, y_train, test_size=0.25, random_state=42, stratify=y_train
     )
 
+    # Gamma calibration on holdout
     clf_ho = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
     clf_ho.fit(log_odds(X_tr), y_tr)
     proba_ho = clf_ho.predict_proba(log_odds(X_ho))
-
     n_classes = proba_ho.shape[1]
 
     def neg_ba(gamma):
@@ -102,7 +103,14 @@ def fit_predict(
                    options={"maxiter": 500, "xatol": 1e-5, "fatol": 1e-7})
     gamma_opt = np.clip(res.x, 0.1, 10.0)
 
-    clf = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
-    clf.fit(log_odds(X_train), y_train)
-    proba_val = clf.predict_proba(log_odds(X_val))
+    # Bagged LR: 20 bootstrap models
+    X_lo = log_odds(X_train)
+    X_val_lo = log_odds(X_val)
+    all_probas = []
+    for i in range(20):
+        X_b, y_b = resample(X_lo, y_train, random_state=i, stratify=y_train)
+        clf_b = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
+        clf_b.fit(X_b, y_b)
+        all_probas.append(clf_b.predict_proba(X_val_lo))
+    proba_val = np.mean(all_probas, axis=0)
     return apply_gamma(proba_val, gamma_opt)
