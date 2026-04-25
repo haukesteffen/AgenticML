@@ -15,4 +15,14 @@ dependencies = [
     "catboost>=1.2",
     "optuna>=3.5",
     "kaggle>=1.6",
+    "torch>=2.7,<2.10",
+    "tabicl>=2.1",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
