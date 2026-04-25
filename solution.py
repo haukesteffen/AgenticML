@@ -1,59 +1,13 @@
-"""
-AgenticML solution module.
-
-This file is what you edit for base-model experiments. The harness in ``harness/``
-runs cross-validation over the dataset and calls ``fit_predict`` once per fold,
-passing only the training and validation slices of that fold. You never see
-the other folds, the test set, or the CV indices themselves.
-
-Contract
---------
-Define exactly two things at module scope:
-
-  HYPOTHESIS : str
-      A one-line plain string literal describing what this attempt tries.
-      Used as the git commit message and MLflow tag. Must be a literal — it
-      is read via ast.parse without executing the module.
-
-  fit_predict(X_train, y_train, X_val) -> np.ndarray
-      Train your model on (X_train, y_train) and return predictions on X_val.
-
-Inputs
-------
-  X_train : pandas.DataFrame  — training fold features (id column already dropped)
-  y_train : numpy.ndarray     — training fold targets (integer-encoded for
-                                 classification via pd.factorize, float for regression)
-  X_val   : pandas.DataFrame  — validation fold features (id column already dropped)
-
-Return shape
-------------
-  2D array of shape (len(X_val), n_classes),
-  per-class probabilities with columns in
-  ascending class-index order (matching pd.factorize
-  with sort=True)
-
-Rules
------
-- Do not import or call mlflow — the harness owns logging.
-- Do not touch anything under ``harness/``, ``data/``, ``.env``, or ``config.yaml``.
-- Do not read test data — you only have what arrives via function arguments.
-- Feature engineering must be done inside ``fit_predict`` so it runs on the
-  training fold only (no cross-fold leakage).
-- HYPOTHESIS must be a plain string literal at module scope.
-- Change exactly one axis per attempt: feature engineering, preprocessing,
-  hyperparameters, or ensembling. HYPOTHESIS must be a single clause naming
-  that one axis. Bundling changes hides which one moved the score and kills
-  the next iteration's ability to ablate or revert. This rule is strict.
-"""
+"""AgenticML solution module."""
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from tabicl import TabICLClassifier
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "TabICL n_estimators=8 default config, cap training context to 504k"
+
+_MAX_CONTEXT = 504_000
 
 
 def fit_predict(
@@ -61,18 +15,18 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    X_train_enc = pd.get_dummies(X_train)
+    X_val_enc = pd.get_dummies(X_val)
+    X_val_enc = X_val_enc.reindex(columns=X_train_enc.columns, fill_value=0)
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    if len(X_train_enc) > _MAX_CONTEXT:
+        _, X_train_enc, _, y_train = train_test_split(
+            X_train_enc, y_train,
+            test_size=_MAX_CONTEXT,
+            random_state=42,
+            stratify=y_train,
+        )
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    clf = TabICLClassifier(device="cuda", random_state=0)
+    clf.fit(X_train_enc.values.astype(np.float32), y_train)
+    return clf.predict_proba(X_val_enc.values.astype(np.float32))
