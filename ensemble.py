@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "Bagged LR C=0.05 (20 bootstrap) + log-odds + gamma on holdout"
+HYPOTHESIS = "Bagged LR C=0.05 (50 bootstrap) + log-odds + gamma on holdout"
 
 SOURCES = [
     {"alias": "lgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
@@ -107,7 +107,7 @@ def fit_predict(
     X_lo = log_odds(X_train)
     X_val_lo = log_odds(X_val)
     all_probas = []
-    for i in range(20):
+    for i in range(50):
         X_b, y_b = resample(X_lo, y_train, random_state=i, stratify=y_train)
         clf_b = LogisticRegression(C=0.05, class_weight="balanced", max_iter=1000, solver="lbfgs")
         clf_b.fit(X_b, y_b)
