@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "model: swap HGB to LightGBM stacker with class_weight=balanced + log-odds features"
+HYPOTHESIS = "ensembling: 5-seed LightGBM bag (average probs) with class_weight=balanced + log-odds"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -81,20 +81,24 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """LightGBM stacker with class_weight=balanced and raw probs + log-odds features."""
+    """5-seed LightGBM bag with class_weight=balanced and raw probs + log-odds features."""
     import lightgbm as lgb
 
     X_tr = _add_logodds(X_train)
     X_v = _add_logodds(X_val)
 
-    model = lgb.LGBMClassifier(
-        class_weight="balanced",
-        learning_rate=0.05,
-        n_estimators=400,
-        max_depth=5,
-        reg_lambda=1.0,
-        random_state=42,
-        verbose=-1,
-    )
-    model.fit(X_tr, y_train)
-    return model.predict_proba(X_v)
+    seeds = [42, 7, 13, 99, 123]
+    preds = []
+    for seed in seeds:
+        model = lgb.LGBMClassifier(
+            class_weight="balanced",
+            learning_rate=0.05,
+            n_estimators=400,
+            max_depth=5,
+            reg_lambda=1.0,
+            random_state=seed,
+            verbose=-1,
+        )
+        model.fit(X_tr, y_train)
+        preds.append(model.predict_proba(X_v))
+    return np.mean(preds, axis=0)
