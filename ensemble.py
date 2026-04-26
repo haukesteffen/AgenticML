@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "model: CatBoost stacker with auto_class_weights=Balanced on isotonic-calibrated features"
+HYPOTHESIS = "ensembling: increase CatBoost bag from 5 to 9 seeds to reduce prediction variance"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -107,7 +107,7 @@ def fit_predict(
 
     from catboost import CatBoostClassifier
 
-    seeds = [42, 7, 13, 99, 123]
+    seeds = [42, 7, 13, 99, 123, 17, 31, 55, 77]
     preds = []
     for seed in seeds:
         model = CatBoostClassifier(
