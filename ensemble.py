@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "preprocessing: isotonic calibration of source probs before LightGBM stacker"
+HYPOTHESIS = "model: CatBoost stacker with auto_class_weights=Balanced on isotonic-calibrated features"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -94,8 +94,7 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Isotonic-calibrated source probs → log-odds → 5-seed LightGBM bag."""
-    import lightgbm as lgb
+    """Isotonic-calibrated source probs → log-odds → 5-seed CatBoost bag."""
 
     X_raw_tr = X_train.to_numpy(dtype=float)
     X_raw_v = X_val.to_numpy(dtype=float)
@@ -106,18 +105,19 @@ def fit_predict(
     X_tr = _add_logodds(X_cal_tr)
     X_v = _add_logodds(X_cal_v)
 
+    from catboost import CatBoostClassifier
+
     seeds = [42, 7, 13, 99, 123]
     preds = []
     for seed in seeds:
-        model = lgb.LGBMClassifier(
-            class_weight="balanced",
-            learning_rate=0.02,
-            n_estimators=800,
-            max_depth=5,
-            reg_lambda=1.0,
-            reg_alpha=0.5,
-            random_state=seed,
-            verbose=-1,
+        model = CatBoostClassifier(
+            auto_class_weights="Balanced",
+            learning_rate=0.05,
+            iterations=400,
+            depth=5,
+            l2_leaf_reg=1.0,
+            random_seed=seed,
+            verbose=0,
         )
         model.fit(X_tr, y_train)
         preds.append(model.predict_proba(X_v))
