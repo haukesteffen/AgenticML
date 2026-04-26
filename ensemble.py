@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "regularization: LightGBM reg_alpha=0.5 L1 regularization on top of L2"
+HYPOTHESIS = "preprocessing: isotonic calibration of source probs before LightGBM stacker"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -69,11 +69,24 @@ SOURCES = [
 ]
 
 
-def _add_logodds(df: pd.DataFrame) -> np.ndarray:
-    X = df.to_numpy(dtype=float)
+def _add_logodds(X: np.ndarray) -> np.ndarray:
     X_clipped = np.clip(X, 1e-7, 1 - 1e-7)
     logodds = np.log(X_clipped / (1 - X_clipped))
     return np.concatenate([X, logodds], axis=1)
+
+
+def _isotonic_calibrate(X_tr: np.ndarray, y_tr: np.ndarray, X_v: np.ndarray, n_classes: int) -> tuple:
+    from sklearn.isotonic import IsotonicRegression
+    X_tr_cal = np.empty_like(X_tr)
+    X_v_cal = np.empty_like(X_v)
+    for j in range(X_tr.shape[1]):
+        class_idx = j % n_classes
+        classes = np.unique(y_tr)
+        y_bin = (y_tr == classes[class_idx]).astype(float)
+        ir = IsotonicRegression(out_of_bounds="clip")
+        X_tr_cal[:, j] = ir.fit_transform(X_tr[:, j], y_bin)
+        X_v_cal[:, j] = ir.transform(X_v[:, j])
+    return X_tr_cal, X_v_cal
 
 
 def fit_predict(
@@ -81,11 +94,17 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """5-seed LightGBM bag with class_weight=balanced and raw probs + log-odds features."""
+    """Isotonic-calibrated source probs → log-odds → 5-seed LightGBM bag."""
     import lightgbm as lgb
 
-    X_tr = _add_logodds(X_train)
-    X_v = _add_logodds(X_val)
+    X_raw_tr = X_train.to_numpy(dtype=float)
+    X_raw_v = X_val.to_numpy(dtype=float)
+
+    n_classes = 3
+    X_cal_tr, X_cal_v = _isotonic_calibrate(X_raw_tr, y_train, X_raw_v, n_classes)
+
+    X_tr = _add_logodds(X_cal_tr)
+    X_v = _add_logodds(X_cal_v)
 
     seeds = [42, 7, 13, 99, 123]
     preds = []
