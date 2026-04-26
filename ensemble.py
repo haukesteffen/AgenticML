@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "hyperparameters: LightGBM lr=0.02 n_estimators=800 pushing lower learning rate further"
+HYPOTHESIS = "regularization: LightGBM reg_alpha=0.5 L1 regularization on top of L2"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -96,6 +96,7 @@ def fit_predict(
             n_estimators=800,
             max_depth=5,
             reg_lambda=1.0,
+            reg_alpha=0.5,
             random_state=seed,
             verbose=-1,
         )
