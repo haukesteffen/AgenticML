@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "ensembling: increase CatBoost bag from 5 to 9 seeds to reduce prediction variance"
+HYPOTHESIS = "regularization: CatBoost l2_leaf_reg=3.0 stronger leaf regularization"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -115,7 +115,7 @@ def fit_predict(
             learning_rate=0.05,
             iterations=400,
             depth=5,
-            l2_leaf_reg=1.0,
+            l2_leaf_reg=3.0,
             random_seed=seed,
             verbose=0,
         )
