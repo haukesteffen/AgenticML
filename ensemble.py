@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "hyperparameters: HGB stacker tuned lr=0.05 max_iter=400 max_depth=5 l2_reg=1.0"
+HYPOTHESIS = "features: add log-odds columns alongside raw probabilities for HGB stacker"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -69,13 +69,23 @@ SOURCES = [
 ]
 
 
+def _add_logodds(df: pd.DataFrame) -> np.ndarray:
+    X = df.to_numpy(dtype=float)
+    X_clipped = np.clip(X, 1e-7, 1 - 1e-7)
+    logodds = np.log(X_clipped / (1 - X_clipped))
+    return np.concatenate([X, logodds], axis=1)
+
+
 def fit_predict(
     X_train: pd.DataFrame,
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Vanilla tree-based stacker over source probability columns."""
+    """HGB stacker with raw probs + log-odds features."""
     from sklearn.ensemble import HistGradientBoostingClassifier
+
+    X_tr = _add_logodds(X_train)
+    X_v = _add_logodds(X_val)
 
     model = HistGradientBoostingClassifier(
         learning_rate=0.05,
@@ -84,5 +94,5 @@ def fit_predict(
         l2_regularization=1.0,
         random_state=42,
     )
-    model.fit(X_train.to_numpy(dtype=float), y_train)
-    return model.predict_proba(X_val.to_numpy(dtype=float))
+    model.fit(X_tr, y_train)
+    return model.predict_proba(X_v)
