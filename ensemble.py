@@ -54,17 +54,18 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "regularization: ElasticNet l1_ratio=0.5 on log-odds features (saga solver)"
+HYPOTHESIS = "stacking: vanilla HistGradientBoosting on 9 source probabilities"
 
 SOURCES = [
-    {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
     {"alias": "lightgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
-    {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
+    {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
-    {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
+    {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
     {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
+    {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
     {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
+    {"alias": "formula", "branch": "exp/formula", "selector": "best_improved"},
 ]
 
 
@@ -73,20 +74,9 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Fit a dense logistic stacker on the source probability columns."""
-    from sklearn.linear_model import LogisticRegression
+    """Vanilla tree-based stacker over source probability columns."""
+    from sklearn.ensemble import HistGradientBoostingClassifier
 
-    model = LogisticRegression(
-        C=4.0,
-        penalty="elasticnet",
-        l1_ratio=0.5,
-        class_weight="balanced",
-        max_iter=2000,
-        solver="saga",
-    )
-    def log_odds(frame: pd.DataFrame) -> np.ndarray:
-        proba = np.clip(frame.to_numpy(dtype=float), 1e-7, 1.0 - 1e-7)
-        return np.log(proba / (1.0 - proba))
-
-    model.fit(log_odds(X_train), y_train)
-    return model.predict_proba(log_odds(X_val))
+    model = HistGradientBoostingClassifier(random_state=42)
+    model.fit(X_train.to_numpy(dtype=float), y_train)
+    return model.predict_proba(X_val.to_numpy(dtype=float))
