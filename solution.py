@@ -48,12 +48,40 @@ Rules
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+HYPOTHESIS = "baseline: cdeotte deterministic logit formula on threshold + growth-stage + mulching indicators"
+
+# Class order matches pd.factorize(sort=True) on ("High", "Low", "Medium"):
+# High=0, Low=1, Medium=2.
+_INTERCEPTS = np.array([-20.9697, 16.3173, 4.6524])
+_COEFS = {
+    "soil_lt_25":                   np.array([10.6947, -11.0237,  0.3290]),
+    "temp_gt_30":                   np.array([ 5.8763,  -5.8559, -0.0204]),
+    "rain_lt_300":                  np.array([10.6958, -10.8500,  0.1542]),
+    "wind_gt_10":                   np.array([ 5.7444,  -5.8284,  0.0841]),
+    "Crop_Growth_Stage_Flowering":  np.array([ 5.0569,  -5.4155,  0.3586]),
+    "Crop_Growth_Stage_Harvest":    np.array([-5.3725,   5.5073, -0.1348]),
+    "Crop_Growth_Stage_Sowing":     np.array([-4.8752,   5.2299, -0.3547]),
+    "Crop_Growth_Stage_Vegetative": np.array([ 5.1283,  -5.4617,  0.3334]),
+    "Mulching_Used_No":             np.array([ 2.8131,  -3.0014,  0.1883]),
+    "Mulching_Used_Yes":            np.array([-2.8755,   2.8613,  0.0142]),
+}
+
+
+def _build_indicators(X: pd.DataFrame) -> dict[str, np.ndarray]:
+    cols = {
+        "soil_lt_25":  (X["Soil_Moisture"]  < 25).to_numpy(dtype=float),
+        "temp_gt_30":  (X["Temperature_C"]  > 30).to_numpy(dtype=float),
+        "rain_lt_300": (X["Rainfall_mm"]    < 300).to_numpy(dtype=float),
+        "wind_gt_10":  (X["Wind_Speed_kmh"] > 10).to_numpy(dtype=float),
+    }
+    growth = X["Crop_Growth_Stage"].astype(str)
+    for stage in ("Flowering", "Harvest", "Sowing", "Vegetative"):
+        cols[f"Crop_Growth_Stage_{stage}"] = (growth == stage).to_numpy(dtype=float)
+    mulch = X["Mulching_Used"].astype(str)
+    for level in ("No", "Yes"):
+        cols[f"Mulching_Used_{level}"] = (mulch == level).to_numpy(dtype=float)
+    return cols
 
 
 def fit_predict(
@@ -61,18 +89,17 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Train a model on (X_train, y_train) and return predictions on X_val."""
-    numeric_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = X_train.select_dtypes(include=["object"]).columns.tolist()
+    """Apply cdeotte's deterministic per-class logit formula and softmax.
 
-    preprocessor = ColumnTransformer([
-        ("num", StandardScaler(), numeric_cols),
-        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), categorical_cols),
-    ])
+    The formula is fixed (no fitting); X_train and y_train are unused.
+    """
+    del X_train, y_train
 
-    pipe = Pipeline([
-        ("preprocess", preprocessor),
-        ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
-    ])
-    pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    indicators = _build_indicators(X_val)
+    logits = np.broadcast_to(_INTERCEPTS, (len(X_val), 3)).copy()
+    for name, coef in _COEFS.items():
+        logits += np.outer(indicators[name], coef)
+
+    logits -= logits.max(axis=1, keepdims=True)
+    exp = np.exp(logits)
+    return exp / exp.sum(axis=1, keepdims=True)
