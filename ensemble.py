@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "hyperparameters: LightGBM lr=0.03 n_estimators=600 for lower learning rate + more iterations"
+HYPOTHESIS = "hyperparameters: LightGBM lr=0.02 n_estimators=800 pushing lower learning rate further"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -92,8 +92,8 @@ def fit_predict(
     for seed in seeds:
         model = lgb.LGBMClassifier(
             class_weight="balanced",
-            learning_rate=0.03,
-            n_estimators=600,
+            learning_rate=0.02,
+            n_estimators=800,
             max_depth=5,
             reg_lambda=1.0,
             random_state=seed,
