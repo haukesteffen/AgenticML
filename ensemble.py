@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "stacking: vanilla HistGradientBoosting on 9 source probabilities"
+HYPOTHESIS = "hyperparameters: HGB stacker tuned lr=0.05 max_iter=400 max_depth=5 l2_reg=1.0"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -77,6 +77,12 @@ def fit_predict(
     """Vanilla tree-based stacker over source probability columns."""
     from sklearn.ensemble import HistGradientBoostingClassifier
 
-    model = HistGradientBoostingClassifier(random_state=42)
+    model = HistGradientBoostingClassifier(
+        learning_rate=0.05,
+        max_iter=400,
+        max_depth=5,
+        l2_regularization=1.0,
+        random_state=42,
+    )
     model.fit(X_train.to_numpy(dtype=float), y_train)
     return model.predict_proba(X_val.to_numpy(dtype=float))
