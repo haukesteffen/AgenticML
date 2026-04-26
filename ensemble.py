@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "features: add log-odds columns alongside raw probabilities for HGB stacker"
+HYPOTHESIS = "model: swap HGB to LightGBM stacker with class_weight=balanced + log-odds features"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -81,18 +81,20 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """HGB stacker with raw probs + log-odds features."""
-    from sklearn.ensemble import HistGradientBoostingClassifier
+    """LightGBM stacker with class_weight=balanced and raw probs + log-odds features."""
+    import lightgbm as lgb
 
     X_tr = _add_logodds(X_train)
     X_v = _add_logodds(X_val)
 
-    model = HistGradientBoostingClassifier(
+    model = lgb.LGBMClassifier(
+        class_weight="balanced",
         learning_rate=0.05,
-        max_iter=400,
+        n_estimators=400,
         max_depth=5,
-        l2_regularization=1.0,
+        reg_lambda=1.0,
         random_state=42,
+        verbose=-1,
     )
     model.fit(X_tr, y_train)
     return model.predict_proba(X_v)
