@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "baseline: vanilla MLP stacker over 9 source runs"
+HYPOTHESIS = "boost minority class prob 3x post-prediction to improve balanced_accuracy recall"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -82,4 +82,12 @@ def fit_predict(
 
     model = MLPClassifier(hidden_layer_sizes=(64,), random_state=0)
     model.fit(X_tr, y_train)
-    return model.predict_proba(X_v)
+    preds = model.predict_proba(X_v)
+
+    # find minority class (High ~3.3%) and boost its probability to improve recall
+    classes, counts = np.unique(y_train, return_counts=True)
+    minority_cls = classes[np.argmin(counts)]
+    minority_idx = np.where(model.classes_ == minority_cls)[0][0]
+    preds[:, minority_idx] *= 3.0
+    preds /= preds.sum(axis=1, keepdims=True)
+    return preds
