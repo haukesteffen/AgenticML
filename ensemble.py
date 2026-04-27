@@ -53,12 +53,21 @@ Rules
 
 import numpy as np
 import pandas as pd
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "equal-weight average over selected source runs"
+HYPOTHESIS = "baseline: vanilla MLP stacker over 9 source runs"
 
 SOURCES = [
-    # {"alias": "lgbm", "branch": "exp/lightgbm", "selector": "best_improved"},
-    # {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
+    {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
+    {"alias": "lightgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
+    {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
+    {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
+    {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
+    {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
+    {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
+    {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
+    {"alias": "formula", "branch": "exp/formula", "selector": "best_improved"},
 ]
 
 
@@ -67,19 +76,10 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Average the selected source predictions with equal weights."""
-    if not SOURCES:
-        raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
+    scaler = StandardScaler()
+    X_tr = scaler.fit_transform(X_train.to_numpy())
+    X_v = scaler.transform(X_val.to_numpy())
 
-    aliases: list[str] = []
-    for column in X_val.columns:
-        alias = column.split("__", 1)[0]
-        if alias not in aliases:
-            aliases.append(alias)
-
-    blocks = [X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
-              for alias in aliases]
-    preds = np.mean(blocks, axis=0)
-    if preds.ndim == 2 and preds.shape[1] == 1:
-        return preds[:, 0]
-    return preds
+    model = MLPClassifier(hidden_layer_sizes=(64,), random_state=0)
+    model.fit(X_tr, y_train)
+    return model.predict_proba(X_v)
