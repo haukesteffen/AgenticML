@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "tune minority class boost to 5x (from 3x that gave +0.004)"
+HYPOTHESIS = "tune minority class boost to 10x (continuing sweep: 3x=0.9729, 5x=0.9742)"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -88,6 +88,6 @@ def fit_predict(
     classes, counts = np.unique(y_train, return_counts=True)
     minority_cls = classes[np.argmin(counts)]
     minority_idx = np.where(model.classes_ == minority_cls)[0][0]
-    preds[:, minority_idx] *= 5.0
+    preds[:, minority_idx] *= 10.0
     preds /= preds.sum(axis=1, keepdims=True)
     return preds
