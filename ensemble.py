@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "swap lgbm3->lightgbm4 and xgb2->xgb3: use newer/better OOF predictions from improved base models"
+HYPOTHESIS = "3-seed MLP ensemble: average 3 seeds to reduce variance with higher-quality OOFs"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -80,16 +80,18 @@ def fit_predict(
     X_tr = scaler.fit_transform(X_train.to_numpy())
     X_v = scaler.transform(X_val.to_numpy())
 
-    model = MLPClassifier(hidden_layer_sizes=(64,), random_state=0)
-    model.fit(X_tr, y_train)
-    preds = model.predict_proba(X_v)
+    all_preds = []
+    for seed in [0, 1, 2]:
+        model = MLPClassifier(hidden_layer_sizes=(64,), random_state=seed)
+        model.fit(X_tr, y_train)
+        all_preds.append(model.predict_proba(X_v))
+    preds = np.mean(all_preds, axis=0)
 
     # inverse-frequency weight all classes, scaled so minority gets 10x
     classes, counts = np.unique(y_train, return_counts=True)
     freqs = counts / len(y_train)
     inv_freq = 1.0 / freqs
-    # scale so that the minority class gets 10x boost
-    scale = inv_freq / inv_freq.min() * 10.0  # minority gets 10x, majority gets less
+    scale = inv_freq / inv_freq.min() * 10.0
     class_order = model.classes_
     weights = np.array([scale[np.where(classes == c)[0][0]] for c in class_order])
     preds *= weights[np.newaxis, :]
