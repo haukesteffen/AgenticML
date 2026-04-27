@@ -56,14 +56,14 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "inverse-frequency weight all 3 classes to fix Low/Medium boundary alongside High boost"
+HYPOTHESIS = "swap lgbm3->lightgbm4 and xgb2->xgb3: use newer/better OOF predictions from improved base models"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
-    {"alias": "lightgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
+    {"alias": "lightgbm4", "branch": "exp/lightgbm4", "selector": "best_improved"},
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
-    {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
+    {"alias": "xgb3", "branch": "exp/xgb3", "selector": "best_improved"},
     {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
     {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
     {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
