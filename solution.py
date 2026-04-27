@@ -13,7 +13,7 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import TargetEncoder
 
-HYPOTHESIS = "hyperparameters: tuned LightGBM on digit and target-encoded features"
+HYPOTHESIS = "feature engineering: numeric agronomic ratios"
 
 SEED = 2026
 DIGIT_POSITIONS = range(-4, 4)
@@ -53,6 +53,46 @@ def _add_digit_features(
     return X
 
 
+def _add_numeric_features(X: pd.DataFrame) -> pd.DataFrame:
+    X = X.copy()
+    needed = {
+        "Rainfall_mm",
+        "Previous_Irrigation_mm",
+        "Temperature_C",
+        "Sunlight_Hours",
+        "Wind_Speed_kmh",
+        "Humidity",
+        "Soil_Moisture",
+        "Organic_Carbon",
+        "Electrical_Conductivity",
+        "Soil_pH",
+        "Field_Area_hectare",
+    }
+    if needed.issubset(X.columns):
+        rainfall = X["Rainfall_mm"]
+        irrigation = X["Previous_Irrigation_mm"]
+        temperature = X["Temperature_C"]
+        sunlight = X["Sunlight_Hours"]
+        wind = X["Wind_Speed_kmh"]
+        humidity = X["Humidity"]
+        moisture = X["Soil_Moisture"]
+        organic_carbon = X["Organic_Carbon"]
+        conductivity = X["Electrical_Conductivity"]
+        soil_ph = X["Soil_pH"]
+        field_area = X["Field_Area_hectare"]
+
+        X["irrigation_density"] = irrigation / (field_area + 0.01)
+        X["Water_Input_Total"] = rainfall + irrigation
+        X["Atmospheric_Demand"] = temperature * sunlight * wind / (humidity + 1.0)
+        X["Soil_Water_Buffer"] = moisture * (organic_carbon + 1.0)
+        X["Dryness_Stress"] = X["Atmospheric_Demand"] / (
+            X["Soil_Water_Buffer"] + rainfall / 20.0 + irrigation + 1.0
+        )
+        X["Water_Per_Area"] = X["Water_Input_Total"] / (field_area + 0.5)
+        X["Salinity_PH_Interaction"] = conductivity * soil_ph
+    return X
+
+
 def _frequency_encode(
     X_train: pd.DataFrame,
     X_val: pd.DataFrame,
@@ -89,6 +129,8 @@ def fit_predict(
     max_values = X_train[numeric_cols].max()
     X_train_fe = _add_digit_features(X_train, numeric_cols, max_values)
     X_val_fe = _add_digit_features(X_val, numeric_cols, max_values)
+    X_train_fe = _add_numeric_features(X_train_fe)
+    X_val_fe = _add_numeric_features(X_val_fe)
 
     drop_cols = [col for col in X_val_fe.columns if X_val_fe[col].nunique() == 1]
     if drop_cols:
