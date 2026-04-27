@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "tune minority class boost to 10x (continuing sweep: 3x=0.9729, 5x=0.9742)"
+HYPOTHESIS = "inverse-frequency weight all 3 classes to fix Low/Medium boundary alongside High boost"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -84,10 +84,14 @@ def fit_predict(
     model.fit(X_tr, y_train)
     preds = model.predict_proba(X_v)
 
-    # find minority class (High ~3.3%) and boost its probability to improve recall
+    # inverse-frequency weight all classes, scaled so minority gets 10x
     classes, counts = np.unique(y_train, return_counts=True)
-    minority_cls = classes[np.argmin(counts)]
-    minority_idx = np.where(model.classes_ == minority_cls)[0][0]
-    preds[:, minority_idx] *= 10.0
+    freqs = counts / len(y_train)
+    inv_freq = 1.0 / freqs
+    # scale so that the minority class gets 10x boost
+    scale = inv_freq / inv_freq.min() * 10.0  # minority gets 10x, majority gets less
+    class_order = model.classes_
+    weights = np.array([scale[np.where(classes == c)[0][0]] for c in class_order])
+    preds *= weights[np.newaxis, :]
     preds /= preds.sum(axis=1, keepdims=True)
     return preds
