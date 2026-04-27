@@ -13,10 +13,11 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import TargetEncoder
 
-HYPOTHESIS = "feature engineering: numeric agronomic ratios"
+HYPOTHESIS = "ensembling: two seed LightGBM blend"
 
 SEED = 2026
 DIGIT_POSITIONS = range(-4, 4)
+BLEND_SEEDS = [5, 19]
 BEST_PARAMS = {
     "learning_rate": 0.1674515990369048,
     "num_leaves": 32,
@@ -160,19 +161,22 @@ def fit_predict(
     weights = {cls: avg_count / count for cls, count in zip(class_values, class_counts)}
     sample_weights = np.array([weights[cls] for cls in y_train])
 
-    model = LGBMClassifier(
-        **BEST_PARAMS,
-        random_state=SEED,
-        n_jobs=-1,
-        verbosity=-1,
-    )
-    model.fit(X_train_model, y_train, sample_weight=sample_weights)
+    proba_sum = np.zeros((len(X_val_model), n_classes), dtype=float)
+    for seed in BLEND_SEEDS:
+        model = LGBMClassifier(
+            **BEST_PARAMS,
+            random_state=seed,
+            n_jobs=-1,
+            verbosity=-1,
+        )
+        model.fit(X_train_model, y_train, sample_weight=sample_weights)
 
-    proba = model.predict_proba(X_val_model)
-    if proba.shape[1] == n_classes:
-        return proba
+        proba = model.predict_proba(X_val_model)
+        if proba.shape[1] != n_classes:
+            aligned = np.zeros((len(X_val_model), n_classes), dtype=float)
+            for i, cls in enumerate(model.classes_):
+                aligned[:, int(cls)] = proba[:, i]
+            proba = aligned
+        proba_sum += proba
 
-    aligned = np.zeros((len(X_val_model), n_classes), dtype=float)
-    for i, cls in enumerate(model.classes_):
-        aligned[:, int(cls)] = proba[:, i]
-    return aligned
+    return proba_sum / len(BLEND_SEEDS)
