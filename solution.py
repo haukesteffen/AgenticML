@@ -13,10 +13,11 @@ import pandas as pd
 import xgboost as xgb
 from sklearn.preprocessing import TargetEncoder
 
-HYPOTHESIS = "model: tuned XGBoost on digit and target-encoded features"
+HYPOTHESIS = "ensembling: two seed XGBoost blend"
 
 SEED = 2026
 DIGIT_POSITIONS = range(-4, 4)
+BLEND_SEEDS = [0, 1]
 BEST_PARAMS = {
     "learning_rate": 0.1894375940266229,
     "max_depth": 4,
@@ -118,22 +119,25 @@ def fit_predict(
     weights = {cls: avg_count / count for cls, count in zip(class_values, class_counts)}
     sample_weights = np.array([weights[cls] for cls in y_train])
 
-    model = xgb.XGBClassifier(
-        **BEST_PARAMS,
-        objective="multi:softprob",
-        eval_metric="mlogloss",
-        tree_method="hist",
-        random_state=SEED,
-        n_jobs=-1,
-        verbosity=0,
-    )
-    model.fit(X_train_model, y_train, sample_weight=sample_weights, verbose=False)
+    proba_sum = np.zeros((len(X_val_model), n_classes), dtype=float)
+    for seed in BLEND_SEEDS:
+        model = xgb.XGBClassifier(
+            **BEST_PARAMS,
+            objective="multi:softprob",
+            eval_metric="mlogloss",
+            tree_method="hist",
+            random_state=seed,
+            n_jobs=-1,
+            verbosity=0,
+        )
+        model.fit(X_train_model, y_train, sample_weight=sample_weights, verbose=False)
 
-    proba = model.predict_proba(X_val_model)
-    if proba.shape[1] == n_classes:
-        return proba
+        proba = model.predict_proba(X_val_model)
+        if proba.shape[1] != n_classes:
+            aligned = np.zeros((len(X_val_model), n_classes), dtype=float)
+            for i, cls in enumerate(model.classes_):
+                aligned[:, int(cls)] = proba[:, i]
+            proba = aligned
+        proba_sum += proba
 
-    aligned = np.zeros((len(X_val_model), n_classes), dtype=float)
-    for i, cls in enumerate(model.classes_):
-        aligned[:, int(cls)] = proba[:, i]
-    return aligned
+    return proba_sum / len(BLEND_SEEDS)
