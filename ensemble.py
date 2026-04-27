@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "logit-transform OOF probs before StandardScaler: spreads clustered probabilities for better MLP input"
+HYPOTHESIS = "(128,) hidden layer with logit features: more capacity may exploit logit-spaced probabilities better"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -86,7 +86,7 @@ def fit_predict(
 
     all_preds = []
     for seed in [0, 1, 2]:
-        model = MLPClassifier(hidden_layer_sizes=(64,), random_state=seed)
+        model = MLPClassifier(hidden_layer_sizes=(128,), random_state=seed)
         model.fit(X_tr, y_train)
         all_preds.append(model.predict_proba(X_v))
     preds = np.mean(all_preds, axis=0)
