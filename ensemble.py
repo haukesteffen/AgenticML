@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "3-seed MLP ensemble: average 3 seeds to reduce variance with higher-quality OOFs"
+HYPOTHESIS = "logit-transform OOF probs before StandardScaler: spreads clustered probabilities for better MLP input"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -76,9 +76,13 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
+    from scipy.special import logit
+
+    X_tr_raw = np.clip(X_train.to_numpy(), 1e-6, 1 - 1e-6)
+    X_v_raw = np.clip(X_val.to_numpy(), 1e-6, 1 - 1e-6)
     scaler = StandardScaler()
-    X_tr = scaler.fit_transform(X_train.to_numpy())
-    X_v = scaler.transform(X_val.to_numpy())
+    X_tr = scaler.fit_transform(logit(X_tr_raw))
+    X_v = scaler.transform(logit(X_v_raw))
 
     all_preds = []
     for seed in [0, 1, 2]:
