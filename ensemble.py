@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "logit transform on OOF probs before logistic regression stacker"
+HYPOTHESIS = "tune C=0.1 (stronger regularization) on logit-transformed logistic regression stacker"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -88,6 +88,6 @@ def fit_predict(
     X_tr = scaler.fit_transform(X_tr)
     X_v = scaler.transform(X_v)
 
-    model = LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced")
+    model = LogisticRegression(max_iter=1000, C=0.1, class_weight="balanced")
     model.fit(X_tr, y_train)
     return model.predict_proba(X_v)
