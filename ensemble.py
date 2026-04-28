@@ -54,10 +54,9 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "simple average of stack1, stack2, stack3 best runs"
+HYPOTHESIS = "drop stack1 (weakest), blend only stack2 and stack3"
 
 SOURCES = [
-    {"alias": "stack1", "branch": "exp/stack1", "selector": "best_improved"},
     {"alias": "stack2", "branch": "exp/stack2", "selector": "best_improved"},
     {"alias": "stack3", "branch": "exp/stack3", "selector": "best_improved"},
 ]
