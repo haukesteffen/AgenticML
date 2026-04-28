@@ -54,11 +54,18 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average over selected source runs"
+HYPOTHESIS = "baseline: logistic regression stacker on raw OOF probs from 9 sources"
 
 SOURCES = [
-    # {"alias": "lgbm", "branch": "exp/lightgbm", "selector": "best_improved"},
-    # {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
+    {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
+    {"alias": "lightgbm4", "branch": "exp/lightgbm4", "selector": "best_improved"},
+    {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
+    {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
+    {"alias": "xgb3", "branch": "exp/xgb3", "selector": "best_improved"},
+    {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
+    {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
+    {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
+    {"alias": "formula", "branch": "exp/formula", "selector": "best_improved"},
 ]
 
 
@@ -67,19 +74,17 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Average the selected source predictions with equal weights."""
-    if not SOURCES:
-        raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
+    """Raw OOF probs → logistic regression stacker."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
 
-    aliases: list[str] = []
-    for column in X_val.columns:
-        alias = column.split("__", 1)[0]
-        if alias not in aliases:
-            aliases.append(alias)
+    X_tr = X_train.to_numpy(dtype=float)
+    X_v = X_val.to_numpy(dtype=float)
 
-    blocks = [X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
-              for alias in aliases]
-    preds = np.mean(blocks, axis=0)
-    if preds.ndim == 2 and preds.shape[1] == 1:
-        return preds[:, 0]
-    return preds
+    scaler = StandardScaler()
+    X_tr = scaler.fit_transform(X_tr)
+    X_v = scaler.transform(X_v)
+
+    model = LogisticRegression(max_iter=1000, C=1.0, class_weight="balanced")
+    model.fit(X_tr, y_train)
+    return model.predict_proba(X_v)
