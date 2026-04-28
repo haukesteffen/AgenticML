@@ -54,14 +54,14 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "regularization: CatBoost l2_leaf_reg=3.0 stronger leaf regularization"
+HYPOTHESIS = "sources: upgrade lgbm3->lightgbm4 and xgb2->xgb3 for improved base model OOFs"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
-    {"alias": "lightgbm3", "branch": "exp/lightgbm3", "selector": "best_improved"},
+    {"alias": "lightgbm4", "branch": "exp/lightgbm4", "selector": "best_improved"},
     {"alias": "linear2", "branch": "exp/linear2", "selector": "best_improved"},
     {"alias": "mlp3", "branch": "exp/mlp3", "selector": "best_improved"},
-    {"alias": "xgb2", "branch": "exp/xgb2", "selector": "best_improved"},
+    {"alias": "xgb3", "branch": "exp/xgb3", "selector": "best_improved"},
     {"alias": "tabm", "branch": "exp/tabm", "selector": "best_improved"},
     {"alias": "tabicl", "branch": "exp/tabicl", "selector": "best_improved"},
     {"alias": "knn", "branch": "exp/knn", "selector": "best_improved"},
