@@ -56,7 +56,7 @@ import pandas as pd
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
-HYPOTHESIS = "(128,) hidden layer with logit features: more capacity may exploit logit-spaced probabilities better"
+HYPOTHESIS = "4 seeds with (128,) logit+10x: bracketing between improved 3-seed and regressed 5-seed"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -85,7 +85,7 @@ def fit_predict(
     X_v = scaler.transform(logit(X_v_raw))
 
     all_preds = []
-    for seed in [0, 1, 2]:
+    for seed in [0, 1, 2, 3]:
         model = MLPClassifier(hidden_layer_sizes=(128,), random_state=seed)
         model.fit(X_tr, y_train)
         all_preds.append(model.predict_proba(X_v))
