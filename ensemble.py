@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "tune C=0.01 (stronger regularization) on logit-transformed logistic regression stacker"
+HYPOTHESIS = "isotonic calibration per class-column before logit transform"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -74,13 +74,39 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Raw OOF probs → logistic regression stacker."""
+    """Raw OOF probs → isotonic calibration → logit → logistic regression stacker."""
+    from sklearn.isotonic import IsotonicRegression
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
+    cols = X_train.columns.tolist()
+    classes = np.unique(y_train)
+    # derive which class index each column corresponds to (last token after __)
+    col_class = {}
+    for c in cols:
+        parts = c.rsplit("__class_", 1)
+        if len(parts) == 2:
+            col_class[c] = int(parts[1])
+
+    X_tr_raw = X_train.to_numpy(dtype=float)
+    X_v_raw = X_val.to_numpy(dtype=float)
+    X_tr_cal = np.empty_like(X_tr_raw)
+    X_v_cal = np.empty_like(X_v_raw)
+
+    for i, col in enumerate(cols):
+        if col in col_class:
+            cls_idx = col_class[col]
+            y_bin = (y_train == classes[cls_idx]).astype(float)
+            ir = IsotonicRegression(out_of_bounds="clip")
+            X_tr_cal[:, i] = ir.fit_transform(X_tr_raw[:, i], y_bin)
+            X_v_cal[:, i] = ir.predict(X_v_raw[:, i])
+        else:
+            X_tr_cal[:, i] = X_tr_raw[:, i]
+            X_v_cal[:, i] = X_v_raw[:, i]
+
     eps = 1e-6
-    X_tr = np.clip(X_train.to_numpy(dtype=float), eps, 1 - eps)
-    X_v = np.clip(X_val.to_numpy(dtype=float), eps, 1 - eps)
+    X_tr = np.clip(X_tr_cal, eps, 1 - eps)
+    X_v = np.clip(X_v_cal, eps, 1 - eps)
     X_tr = np.log(X_tr / (1 - X_tr))
     X_v = np.log(X_v / (1 - X_v))
 
