@@ -54,7 +54,7 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "baseline: logistic regression stacker on raw OOF probs from 9 sources"
+HYPOTHESIS = "logit transform on OOF probs before logistic regression stacker"
 
 SOURCES = [
     {"alias": "catboost2", "branch": "exp/catboost2", "selector": "best_improved"},
@@ -78,8 +78,11 @@ def fit_predict(
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
-    X_tr = X_train.to_numpy(dtype=float)
-    X_v = X_val.to_numpy(dtype=float)
+    eps = 1e-6
+    X_tr = np.clip(X_train.to_numpy(dtype=float), eps, 1 - eps)
+    X_v = np.clip(X_val.to_numpy(dtype=float), eps, 1 - eps)
+    X_tr = np.log(X_tr / (1 - X_tr))
+    X_v = np.log(X_v / (1 - X_v))
 
     scaler = StandardScaler()
     X_tr = scaler.fit_transform(X_tr)
