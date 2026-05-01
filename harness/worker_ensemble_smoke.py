@@ -1,4 +1,6 @@
-"""Smoke-test worker for OOF-backed ensemble experiments."""
+"""Smoke worker for phase e — runs ``ensemble.fit_predict`` on a tiny slice
+of the resolved meta-features to catch obvious bugs before nested CV starts.
+"""
 from __future__ import annotations
 
 import argparse
@@ -7,11 +9,14 @@ import traceback
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
 from harness.config import HarnessConfig
-from harness.cv import build_cv
-from harness.ensemble_utils import build_meta_frames
+from harness.promoted_resolver import resolve_sources
+from harness.worker_ensemble_full import (
+    _stack_from_inner,
+    _stack_from_outer,
+    _to_frame,
+)
 from harness.worker_smoke import InvalidOutput, validate_predictions
 
 
@@ -22,7 +27,6 @@ def main() -> int:
 
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
-    test_df = pd.read_csv(cfg.project_root / cfg.dataset.test_path)
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -30,44 +34,38 @@ def main() -> int:
         n_classes = len(classes)
     else:
         y = y_raw.values.astype(float)
-        classes = None
         n_classes = 0
 
     sys.path.insert(0, str(cfg.project_root))
     import ensemble
 
-    meta_df, _, _ = build_meta_frames(
-        cfg,
-        train_df,
-        test_df,
-        n_classes,
-        getattr(ensemble, "SOURCES", None),
-        classes=classes,
-    )
+    raw_sources = getattr(ensemble, "SOURCES", None)
+    if not isinstance(raw_sources, list) or not all(isinstance(s, str) for s in raw_sources):
+        raise TypeError("ensemble.SOURCES must be a list[str] of promoted lane names.")
+    sources = resolve_sources(cfg, raw_sources)
 
-    stratify = y if cfg.dataset.problem_type != "regression" else None
-    if cfg.smoke.data_fraction < 1.0:
-        meta_df, _, y, _ = train_test_split(
-            meta_df,
-            y,
-            train_size=cfg.smoke.data_fraction,
-            stratify=stratify,
-            random_state=cfg.cv.seed,
-        )
-        if stratify is not None:
-            stratify = y
+    n = len(y)
+    sample = max(64, int(n * cfg.smoke.data_fraction))
+    rng = np.random.default_rng(cfg.cv.seed)
+    tr_idx = rng.choice(n, size=sample, replace=False)
+    va_idx = rng.choice(n, size=max(32, sample // 4), replace=False)
 
-    cv = build_cv(cfg.dataset.problem_type, n_splits=cfg.smoke.n_splits, shuffle=True, seed=cfg.cv.seed)
-    split_args = (meta_df, y) if cfg.dataset.problem_type != "regression" else (meta_df,)
+    X_tr_arr = _stack_from_inner(sources, tr_idx, fold=0, problem_type=cfg.dataset.problem_type)
+    X_va_arr = _stack_from_outer(sources, va_idx, cfg.dataset.problem_type)
 
-    for tr_idx, va_idx in cv.split(*split_args):
-        X_tr, y_tr = meta_df.iloc[tr_idx], y[tr_idx]
-        X_va = meta_df.iloc[va_idx]
+    if np.any(np.isnan(X_tr_arr)):
+        # rows where fold-0 inner OOF was the outer-holdout slot get NaN; skip them
+        good = ~np.any(np.isnan(X_tr_arr), axis=1)
+        X_tr_arr = X_tr_arr[good]
+        tr_idx = tr_idx[good]
+    y_tr = y[tr_idx]
 
-        preds = ensemble.fit_predict(X_tr, y_tr, X_va)
-        preds = np.asarray(preds)
-        validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
+    X_tr = _to_frame(sources, X_tr_arr, n_classes, cfg.dataset.problem_type)
+    X_va = _to_frame(sources, X_va_arr, n_classes, cfg.dataset.problem_type)
 
+    preds = ensemble.fit_predict(X_tr, y_tr, X_va)
+    preds = np.asarray(preds)
+    validate_predictions(preds, len(va_idx), n_classes, cfg.dataset.problem_type)
     return 0
 
 

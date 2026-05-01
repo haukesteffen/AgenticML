@@ -10,8 +10,18 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("run", help="Execute an experiment run")
 
+    sub.add_parser("promote", help="Run nested 5x5 on solution.py and log to the promoted experiment")
+
     status_parser = sub.add_parser("status", help="Show recent experiment runs")
     status_parser.add_argument("--limit", type=int, default=10, help="Max runs to show")
+    status_parser.add_argument(
+        "--experiment", default=None,
+        help="Override experiment name. Use 'promoted' to view all promoted lanes.",
+    )
+    status_parser.add_argument(
+        "--lane", default=None,
+        help="Filter promoted runs by lane (e.g. 'v1_raw__LGBMClassifier').",
+    )
 
     submit_parser = sub.add_parser(
         "submit", help="Build submission.csv from a run's test_predictions.npy and upload to Kaggle"
@@ -34,9 +44,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "run":
         from harness.runner import run
         run(args.config)
+    elif args.command == "promote":
+        from harness.promote import main as promote_main
+        promote_main(args.config)
     elif args.command == "status":
         from harness.status import status
-        status(args.config, args.limit)
+        status(args.config, args.limit, experiment=args.experiment, lane=args.lane)
     elif args.command == "submit":
         from harness.submit import submit
         submit(args.config, run_id=args.run_id, message=args.message, branch=args.branch)

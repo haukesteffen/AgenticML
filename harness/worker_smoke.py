@@ -49,9 +49,19 @@ def main() -> int:
 
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
-    X = train_df.drop(columns=[cfg.dataset.target])
-    if cfg.dataset.id_column in X.columns:
-        X = X.drop(columns=[cfg.dataset.id_column])
+    test_df = pd.read_csv(cfg.project_root / cfg.dataset.test_path)
+
+    sys.path.insert(0, str(cfg.project_root))
+    import solution
+    from features import load_recipe
+
+    recipe = getattr(solution, "RECIPE", "v1_raw")
+    X, _X_test = load_recipe(
+        recipe, train_df, test_df,
+        target=cfg.dataset.target,
+        id_column=cfg.dataset.id_column,
+        project_root=cfg.project_root,
+    )
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -71,9 +81,6 @@ def main() -> int:
         )
         if stratify is not None:
             stratify = y
-
-    sys.path.insert(0, str(cfg.project_root))
-    import solution
 
     cv = build_cv(cfg.dataset.problem_type, n_splits=cfg.smoke.n_splits, shuffle=True, seed=cfg.cv.seed)
     split_args = (X, y) if cfg.dataset.problem_type != "regression" else (X,)

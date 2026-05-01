@@ -48,10 +48,18 @@ def main() -> int:
     cfg = HarnessConfig.load(args.config)
     train_df = pd.read_csv(cfg.project_root / cfg.dataset.train_path)
     test_df = pd.read_csv(cfg.project_root / cfg.dataset.test_path)
-    X = train_df.drop(columns=[cfg.dataset.target])
-    if cfg.dataset.id_column in X.columns:
-        X = X.drop(columns=[cfg.dataset.id_column])
-    X_test = test_df.drop(columns=[cfg.dataset.id_column])
+
+    sys.path.insert(0, str(cfg.project_root))
+    import solution
+    from features import load_recipe
+
+    recipe = getattr(solution, "RECIPE", "v1_raw")
+    X, X_test = load_recipe(
+        recipe, train_df, test_df,
+        target=cfg.dataset.target,
+        id_column=cfg.dataset.id_column,
+        project_root=cfg.project_root,
+    )
     y_raw = train_df[cfg.dataset.target]
 
     if cfg.dataset.problem_type != "regression":
@@ -61,9 +69,6 @@ def main() -> int:
         y = y_raw.values.astype(float)
         classes = None
         n_classes = 0
-
-    sys.path.insert(0, str(cfg.project_root))
-    import solution
 
     metric_fn, _ = get_metric(cfg.metric.name)
     cv = build_cv(cfg.dataset.problem_type, cfg.cv)

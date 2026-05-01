@@ -8,12 +8,24 @@ the other folds, the test set, or the CV indices themselves.
 
 Contract
 --------
-Define exactly two things at module scope:
+Define exactly three things at module scope:
 
   HYPOTHESIS : str
       A one-line plain string literal describing what this attempt tries.
       Used as the git commit message and MLflow tag. Must be a literal — it
       is read via ast.parse without executing the module.
+
+  RECIPE : str
+      The name of a feature recipe in ``features/`` (e.g. "v1_raw"). The
+      harness loads X_train and X_test via ``features.load_recipe(RECIPE, ...)``
+      before splitting into folds. Recipes must be leakage-safe; fold-aware
+      transformations belong inside ``fit_predict``.
+
+  FAMILY : str  (recommended; required for `python -m harness promote`)
+      Short string identifying the model family (e.g. "LGBMClassifier",
+      "CatBoostClassifier", "MLPClassifier"). Combined with RECIPE to form
+      the lane name ``<RECIPE>__<FAMILY>`` used by the promoted experiment.
+      If absent, the lane is tagged ``family=unknown``.
 
   fit_predict(X_train, y_train, X_val) -> np.ndarray
       Train your model on (X_train, y_train) and return predictions on X_val.
@@ -54,6 +66,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 HYPOTHESIS = "baseline: logistic regression with scaled numerics + one-hot categoricals"
+RECIPE = "v1_raw"
+FAMILY = "LogisticRegression"
 
 
 def fit_predict(

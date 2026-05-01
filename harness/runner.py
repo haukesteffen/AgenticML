@@ -103,6 +103,7 @@ def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
 
     experiment_path = project_root / spec.file_name
     hypothesis = git_utils.read_hypothesis_via_ast(experiment_path)
+    recipe = git_utils.read_string_constant_via_ast(experiment_path, "RECIPE", "v1_raw")
 
     sha = git_utils.commit_allowlist(
         [spec.file_name, "NOTES.md"],
@@ -113,16 +114,16 @@ def _run_inner(cfg: HarnessConfig, project_root: Path, config_abs: str) -> None:
     slug = cfg.mlflow.competition_slug
 
     experiment_name = f"{cfg.mlflow.experiment_prefix}_{slug}_{branch}"
-    parent = mlflow_utils.start_parent_run(
-        experiment_name,
-        tags={
-            "branch": branch,
-            "sha": sha,
-            "hypothesis": hypothesis,
-            "experiment_kind": spec.kind,
-            "status": "running",
-        },
-    )
+    tags = {
+        "branch": branch,
+        "sha": sha,
+        "hypothesis": hypothesis,
+        "experiment_kind": spec.kind,
+        "status": "running",
+    }
+    if spec.kind == "model":
+        tags["recipe"] = recipe
+    parent = mlflow_utils.start_parent_run(experiment_name, tags=tags)
     parent_run_id = parent.info.run_id
 
     try:
@@ -162,10 +163,6 @@ def _smoke_timeout(cfg: HarnessConfig, spec: ExperimentSpec) -> int:
     return cfg.budget.smoke_seconds
 
 
-def _should_run_smoke(spec: ExperimentSpec) -> bool:
-    return spec.kind != "ensemble"
-
-
 def _print_result(status: str, score, best, n_folds: int, elapsed: float, loc: int) -> None:
     score_s = f"{score:.6f}" if isinstance(score, float) else "-"
     best_s = f"{best:.6f}" if isinstance(best, float) else "-"
@@ -188,29 +185,26 @@ def _run_with_parent(
     slug = cfg.mlflow.competition_slug
 
     # --- smoke phase ---
-    if _should_run_smoke(spec):
-        print("Running smoke test...")
-        smoke_code, smoke_stderr = _spawn_worker(
-            spec.smoke_worker,
-            config_abs,
-            timeout=_smoke_timeout(cfg, spec),
-        )
-        smoke_status = _classify_worker_exit(smoke_code)
+    print("Running smoke test...")
+    smoke_code, smoke_stderr = _spawn_worker(
+        spec.smoke_worker,
+        config_abs,
+        timeout=_smoke_timeout(cfg, spec),
+    )
+    smoke_status = _classify_worker_exit(smoke_code)
 
-        if smoke_status != "ok":
-            print(f"Smoke test failed: {smoke_status}")
-            if smoke_stderr:
-                print(smoke_stderr)
-            status = f"smoke_fail:{smoke_status}"
-            mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
-            mlflow_utils.end_parent_run(status)
-            git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
-            _print_result(status, None, None, 0, time.monotonic() - t0, loc)
-            return
+    if smoke_status != "ok":
+        print(f"Smoke test failed: {smoke_status}")
+        if smoke_stderr:
+            print(smoke_stderr)
+        status = f"smoke_fail:{smoke_status}"
+        mlflow_utils.log_traceback_artifact(smoke_stderr, "smoke_traceback.txt")
+        mlflow_utils.end_parent_run(status)
+        git_utils.reset_one([spec.file_name, *RESET_ALLOWLIST], cwd=project_root)
+        _print_result(status, None, None, 0, time.monotonic() - t0, loc)
+        return
 
-        print("Smoke test passed. Running full CV...")
-    else:
-        print("Skipping smoke test for ensemble experiment. Running full CV...")
+    print("Smoke test passed. Running full CV...")
 
     # --- full phase ---
     # +1 fold-equivalent covers the full-train refit that produces test_predictions.npy.

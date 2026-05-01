@@ -47,19 +47,23 @@ def file_exists_in_head(path: str, cwd: Path | None = None) -> bool:
     return result.returncode == 0
 
 
-def read_hypothesis_via_ast(solution_path: Path) -> str:
+def read_string_constant_via_ast(path: Path, name: str, default: str) -> str:
     try:
-        source = solution_path.read_text()
+        source = path.read_text()
         tree = ast.parse(source)
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "HYPOTHESIS":
+                    if isinstance(target, ast.Name) and target.id == name:
                         if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                             return node.value.value
     except Exception:
         pass
-    return "[missing hypothesis]"
+    return default
+
+
+def read_hypothesis_via_ast(solution_path: Path) -> str:
+    return read_string_constant_via_ast(solution_path, "HYPOTHESIS", "[missing hypothesis]")
 
 
 def commit_allowlist(files: list[str], message: str, cwd: Path | None = None) -> str:

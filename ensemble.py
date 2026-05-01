@@ -1,47 +1,39 @@
 """
-AgenticML ensemble module.
+AgenticML ensemble (phase e) module.
 
-This file is what you edit for OOF-backed ensemble experiments. The harness
-resolves source runs from MLflow, downloads each source run's
-``oof_predictions.npy`` artifact, and builds a meta-feature table for you.
-Your ``fit_predict`` function sees only those meta-features, not the raw
-competition features.
+This file is what you edit for L2 ensemble experiments. The harness runs L2
+nested CV against a list of promoted lanes: each outer fold's L2-training
+features come from the lanes' ``oof_inner[:, fold]`` and the L2-validation
+features come from the lanes' ``oof_outer``. Final test predictions come from
+refitting L2 on the full L1 outer-OOF table.
 
 Contract
 --------
 Define exactly three things at module scope:
 
   HYPOTHESIS : str
-      A one-line plain string literal describing what this attempt tries.
-      Used as the git commit message and MLflow tag. Must be a literal.
+      One-line plain string literal describing the change in this attempt.
+      Used as the git commit message and MLflow tag.
 
-  SOURCES : list[dict]
-      Each source selects one logged run whose OOF predictions become columns
-      in the meta-feature table. Supported forms are:
+  SOURCES : list[str]
+      The lane names whose promoted artifacts feed L2. Each entry must match
+      the ``lane`` tag of a run in the ``promoted`` MLflow experiment (e.g.
+      ``"v1_raw__LGBMClassifier"``). Discoverable via:
 
-        {"alias": "lgbm", "branch": "exp/lightgbm", "selector": "best_improved"}
-        {"alias": "xgb_best", "run_id": "<mlflow-run-id>"}
-
-      ``alias`` is optional but strongly recommended. If omitted, the harness
-      derives one from the branch or run id.
+          python -m harness status --experiment promoted
 
   fit_predict(X_train, y_train, X_val) -> np.ndarray
-      Train an ensemble or stacker on the meta-feature table and return
-      predictions for ``X_val``.
-
-Inputs
-------
-  X_train : pandas.DataFrame  — source-prediction features for training rows
-  y_train : numpy.ndarray     — training targets
-  X_val   : pandas.DataFrame  — source-prediction features for validation rows
+      Train your L2 model on the meta-features and return predictions for
+      ``X_val``. The harness calls this once per outer fold and once more on
+      the full table for the test prediction.
 
 Meta-feature columns
 --------------------
 Multiclass sources contribute one column per class:
-  ``<alias>__class_0``, ``<alias>__class_1``, ...
+  ``<lane>__class_0``, ``<lane>__class_1``, ...
 
 Binary-classification and regression sources contribute one column:
-  ``<alias>__pred``
+  ``<lane>__pred``
 
 Rules
 -----
@@ -54,11 +46,11 @@ Rules
 import numpy as np
 import pandas as pd
 
-HYPOTHESIS = "equal-weight average over selected source runs"
+HYPOTHESIS = "equal-weight average over selected promoted lanes"
 
-SOURCES = [
-    # {"alias": "lgbm", "branch": "exp/lightgbm", "selector": "best_improved"},
-    # {"alias": "xgb", "branch": "exp/xgb", "selector": "best_improved"},
+SOURCES: list[str] = [
+    # "v1_raw__LGBMClassifier",
+    # "v3_target_enc__CatBoostClassifier",
 ]
 
 
@@ -67,9 +59,9 @@ def fit_predict(
     y_train: np.ndarray,
     X_val: pd.DataFrame,
 ) -> np.ndarray:
-    """Average the selected source predictions with equal weights."""
+    """Average each source's prediction columns with equal weights."""
     if not SOURCES:
-        raise ValueError("SOURCES is empty. Add at least one source run before running the harness.")
+        raise ValueError("SOURCES is empty. Add at least one promoted lane name.")
 
     aliases: list[str] = []
     for column in X_val.columns:
@@ -77,8 +69,10 @@ def fit_predict(
         if alias not in aliases:
             aliases.append(alias)
 
-    blocks = [X_val[[col for col in X_val.columns if col.startswith(f"{alias}__")]].to_numpy()
-              for alias in aliases]
+    blocks = [
+        X_val[[c for c in X_val.columns if c.startswith(f"{alias}__")]].to_numpy()
+        for alias in aliases
+    ]
     preds = np.mean(blocks, axis=0)
     if preds.ndim == 2 and preds.shape[1] == 1:
         return preds[:, 0]
