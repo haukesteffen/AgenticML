@@ -1,12 +1,12 @@
 dataset:
   train_path: data/train.csv
   test_path: data/test.csv
-  target: Irrigation_Need
+  target: PitNextLap
   id_column: id
-  problem_type: multiclass_classification   # | binary_classification | regression
+  problem_type: binary_classification   # | multiclass_classification | regression
 
 metric:
-  name: balanced_accuracy                   # | roc_auc | accuracy | logloss | rmse | mae
+  name: roc_auc                   # | roc_auc | balanced_accuracy | accuracy | logloss | rmse | mae
 
 cv:
   n_splits: 5
@@ -23,5 +23,5 @@ smoke:
 
 mlflow:
   experiment_prefix: agenticml
-  competition_slug: playground-s6e4           # mlflow experiment-name suffix; stable across history
-  kaggle_competition: playground-series-s6e4  # real Kaggle competition slug for API uploads
+  competition_slug: predicting-f1-pit-stops   # mlflow experiment-name suffix; stable across history
+  kaggle_competition: playground-series-s6e5  # real Kaggle competition slug for API uploads

@@ -39,10 +39,11 @@ Inputs
 
 Return shape
 ------------
-  2D array of shape (len(X_val), n_classes),
-  per-class probabilities with columns in
-  ascending class-index order (matching pd.factorize
-  with sort=True)
+  - binary_classification: 1D array (len(X_val),) of P(class == 1)
+  - multiclass_classification: 2D array (len(X_val), n_classes) of per-class
+    probabilities in ascending class-index order (matching pd.factorize
+    with sort=True)
+  - regression: 1D array (len(X_val),)
 
 Rules
 -----
@@ -89,4 +90,4 @@ def fit_predict(
         ("model", LogisticRegression(max_iter=1000, n_jobs=-1)),
     ])
     pipe.fit(X_train, y_train)
-    return pipe.predict_proba(X_val)
+    return pipe.predict_proba(X_val)[:, 1]
