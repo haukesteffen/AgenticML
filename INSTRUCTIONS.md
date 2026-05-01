@@ -7,7 +7,7 @@ honest stacking.
 The harness has two roles, signaled by which file you're editing:
 
 - `solution.py` — base-model lane. The agent hill-climbs on plain 5-fold CV.
-- `ensemble.py` — phase e (L2 stacking). The agent hill-climbs on L2's
+- `ensemble.py` — L2 stacking phase. The agent hill-climbs on L2's
   outer-OOF score from honest nested CV over promoted lanes.
 
 Coordination artifacts live on `main`:
@@ -15,7 +15,7 @@ Coordination artifacts live on `main`:
 - `WIKI.md` — competition knowledge base. Edits are agent-proposed,
   human-approved.
 - `LANES.md` — index of (recipe × family) lanes with status. Edits are
-  agent-proposed, human-approved. Best CV scores live in MLflow, not here.
+  agent-proposed, human-approved.
 - `features/` — feature recipes. Each recipe is a self-contained file with a
   `build(train_df, test_df, target, id_column)` function. Outputs are cached.
 
@@ -25,7 +25,6 @@ Coordination artifacts live on `main`:
   optionally `FAMILY` at module scope.
 - `ensemble.py` — L2 ensemble experiments. Declare `HYPOTHESIS` and `SOURCES`
   (a list of promoted lane names).
-- `NOTES.md` — optional scratchpad for cross-attempt planning.
 
 Read the docstring of the file you're editing for the full contract.
 
@@ -55,7 +54,7 @@ RESULT status=improved score=0.8342 best=0.8310 folds=5 elapsed=347s loc=120
 Runs nested 5×5 CV on the current `solution.py`, logs honest L1 OOF
 artifacts to the `promoted` MLflow experiment, and tags them with the lane
 name `<RECIPE>__<FAMILY>`. **No improvement gate, no git commit.** Triggered
-by the human when a lane is exhausted; phase e then consumes those
+by the human when a lane is exhausted; ensembling phase then consumes those
 artifacts as `SOURCES`.
 
 ### `python -m harness status [--experiment promoted] [--lane NAME]`
